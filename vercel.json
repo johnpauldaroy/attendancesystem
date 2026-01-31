@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "installCommand": "cd attendance-frontend && npm ci",
+  "buildCommand": "cd attendance-frontend && npm run build",
+  "outputDirectory": "attendance-frontend/dist"
+}
