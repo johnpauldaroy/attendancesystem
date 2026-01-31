@@ -8,7 +8,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, X, Save, Search, ArrowLeft, Upload, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, Search, ArrowLeft, Upload, Download, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import Papa from 'papaparse';

@@ -6,10 +6,9 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Search, ArrowLeft, Loader2, User, AlertTriangle, Undo2 } from 'lucide-react';
+import { Search, ArrowLeft, Loader2, User, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -36,7 +35,6 @@ const PresentMemberPage = () => {
     const [selectedMember, setSelectedMember] = useState<any>(null);
     const [showWarningDialog, setShowWarningDialog] = useState(false);
     const [missingFields, setMissingFields] = useState<any[]>([]);
-    const [lastLoggedAttendance, setLastLoggedAttendance] = useState<any>(null);
     const { user } = useAuth();
 
     useEffect(() => {
@@ -105,9 +103,6 @@ const PresentMemberPage = () => {
             return { id: docRef.id, ...attendanceData };
         },
         onSuccess: async (data) => {
-            // Store for undo functionality
-            setLastLoggedAttendance(data);
-
             // Show success toast with undo button
             toast.success(data.status === 'APPROVED' ? 'Attendance Approved!' : 'Attendance Submitted for Approval', {
                 duration: 10000,
@@ -158,7 +153,6 @@ const PresentMemberPage = () => {
         },
         onSuccess: () => {
             toast.success('Attendance log reverted successfully');
-            setLastLoggedAttendance(null);
         },
         onError: () => {
             toast.error('Failed to undo attendance log');

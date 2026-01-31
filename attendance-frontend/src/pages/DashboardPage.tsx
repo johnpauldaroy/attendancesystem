@@ -4,12 +4,11 @@ import { db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { LogOut, UserPlus, ClipboardList, CheckCircle } from 'lucide-react';
 
 const DashboardPage = () => {
     const { user, logout } = useAuth();
-    const navigate = useNavigate();
     const [stats, setStats] = useState({ todayCount: 0, pendingCount: 0, approvedToday: 0 });
     const [isLoading, setIsLoading] = useState(true);
 
