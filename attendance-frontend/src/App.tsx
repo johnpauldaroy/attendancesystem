@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
+import { auth } from '@/lib/firebase';
 import { Toaster as Sonner } from 'sonner';
 
 // Pages (to be created)
@@ -19,8 +20,15 @@ const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
-  if (isLoading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
-  if (!user) return <Navigate to="/login" />;
+  const authUser = auth.currentUser;
+
+  // If Firebase already has a session but our context hasn't hydrated yet,
+  // wait instead of redirecting back to /login.
+  if (isLoading || (!user && authUser)) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+
+  if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 

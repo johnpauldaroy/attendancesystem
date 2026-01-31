@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '@/lib/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,6 +13,14 @@ const LoginPage = () => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const { user } = useAuth();
+
+    // If already authenticated, send to dashboard.
+    useEffect(() => {
+        if (user) {
+            navigate('/', { replace: true });
+        }
+    }, [user, navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -19,7 +28,7 @@ const LoginPage = () => {
         try {
             await signInWithEmailAndPassword(auth, email, password);
             toast.success('Login successful');
-            navigate('/');
+            navigate('/', { replace: true });
         } catch (err: any) {
             console.error(err);
             toast.error('Login failed: ' + (err.message || 'Unknown error'));
