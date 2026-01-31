@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Fetch user data from the 'users' collection
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Check for specific roles
+    function hasRole(role) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        getUserData().role == role;
+    }
+
+    function isSuperAdmin() {
+      return hasRole('SUPER_ADMIN');
+    }
+
+    function isBranchAdmin() {
+      return hasRole('BRANCH_ADMIN');
+    }
+
+    function isApprover() {
+      return hasRole('APPROVER');
+    }
+
+    function isStaff() {
+      return hasRole('STAFF');
+    }
+
+    function isAdminOrApprover() {
+      return isSuperAdmin() || isBranchAdmin() || isApprover();
+    }
+
+    function isStaffOrAbove() {
+      return isAuthenticated(); // Simplified: All authenticated users are essentially staff/active users
+      // In a stricter system: return isSuperAdmin() || isBranchAdmin() || isApprover() || isStaff();
+    }
+
+    // --- Collections ---
+
+    // Users Collection
+    match /users/{userId} {
+      // Users can read/write their own data
+      // Super Admins can manage all users
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin() || isBranchAdmin());
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+    }
+
+    // Members Collection
+    // Members Collection
+    match /members/{memberId} {
+      // READ:
+      // - Super Admin: Can read all
+      // - Others: Can only read if the member belongs to their branch
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() || 
+        resource.data.origin_branch_id == getUserData().branch_id
+      );
+      
+      // WRITE:
+      // - Super Admin: Can write all
+      // - Branch Admin/Approver: Can write if member belongs to their branch
+      allow write: if isAdminOrApprover() && (
+        isSuperAdmin() || 
+        (
+          // For Create/Update: New data must match user's branch
+          request.resource.data.origin_branch_id == getUserData().branch_id &&
+          // For Update: Existing data must also match (no taking over other branch members)
+          (resource == null || resource.data.origin_branch_id == getUserData().branch_id)
+        )
+      ) &&
+        // Schema Validation (Basic)
+        (!request.resource.data.keys().hasAll(['status']) || request.resource.data.status in ['ACTIVE', 'INACTIVE']);
+    }
+
+    // Attendance Collection
+    match /attendance/{attendanceId} {
+      // Anyone can read (History page)
+      allow read: if isAuthenticated();
+
+      // Create: Staff+ can create, but status must match rules
+      allow create: if isStaffOrAbove() && 
+        // Must validate required fields
+        request.resource.data.keys().hasAll(['member', 'origin_branch', 'visited_branch', 'attendance_date_time', 'status']) &&
+        // Status must be PENDING on creation (unless Admin)
+        (request.resource.data.status == 'PENDING' || isAdminOrApprover());
+
+      // Update: Only Admins/Approvers can update (approve/reject)
+      // Staff cannot change an existing record
+      allow update: if isAdminOrApprover() &&
+        // Validate Status Enum
+        request.resource.data.status in ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
+      
+      // Delete: Only Super Admins
+      allow delete: if isSuperAdmin();
+    }
+
+    // Audit Logs Collection
+    match /audit_logs/{logId} {
+      // Authenticated users can read
+      allow read: if isAuthenticated();
+      // Append-only: Create allowed, no update/delete
+      // Anyone performing an action can log it
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}

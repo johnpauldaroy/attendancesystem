@@ -1,0 +1,12 @@
+# Repository-level ignores
+attendance-frontend/node_modules
+attendance-frontend/dist
+attendance-system/node_modules
+attendance-system/vendor
+attendance-system/public/build
+attendance-system/public/hot
+
+# Environment files
+**/.env
+**/.env.local
+**/.env.*.local
