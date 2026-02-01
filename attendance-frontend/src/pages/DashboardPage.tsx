@@ -8,6 +8,15 @@ import { Link } from 'react-router-dom';
 import { LogOut, UserPlus, ClipboardList, CheckCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
+type SegKey = 'Bronze' | 'Silver' | 'Gold' | 'Diamond' | 'Not Segmented';
+const emptySeg: Record<SegKey, number> = {
+    Bronze: 0,
+    Silver: 0,
+    Gold: 0,
+    Diamond: 0,
+    'Not Segmented': 0,
+};
+
 const DashboardPage = () => {
     const { user, logout } = useAuth();
     const [attendanceDocs, setAttendanceDocs] = useState<any[]>([]);
@@ -15,13 +24,7 @@ const DashboardPage = () => {
         todayCount: 0,
         pendingCount: 0,
         approvedToday: 0,
-        segmentation: {
-            Bronze: 0,
-            Silver: 0,
-            Gold: 0,
-            Diamond: 0,
-            'Not Segmented': 0,
-        }
+        segmentation: { ...emptySeg },
     });
     const [membersMap, setMembersMap] = useState<Record<string, any>>({});
     const [isLoading, setIsLoading] = useState(true);
@@ -67,13 +70,7 @@ const DashboardPage = () => {
         let todayCount = 0;
         let pendingCount = 0;
         let approvedToday = 0;
-        const segCounts: Record<string, number> = {
-            Bronze: 0,
-            Silver: 0,
-            Gold: 0,
-            Diamond: 0,
-            'Not Segmented': 0,
-        };
+        const segCounts: Record<SegKey, number> = { ...emptySeg };
 
         attendanceDocs.forEach((row: any) => {
             todayCount++;
@@ -85,7 +82,7 @@ const DashboardPage = () => {
             const normalized = typeof segRaw === 'string'
                 ? segRaw.trim().toLowerCase()
                 : '';
-            let label: keyof typeof segCounts = 'Not Segmented';
+            let label: SegKey = 'Not Segmented';
             if (normalized === 'bronze') label = 'Bronze';
             else if (normalized === 'silver') label = 'Silver';
             else if (normalized === 'gold') label = 'Gold';
