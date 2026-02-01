@@ -7,10 +7,13 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import Logo from '@/assets/Logo.png';
+import { Eye, EyeOff } from 'lucide-react';
 
 const LoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -40,9 +43,12 @@ const LoginPage = () => {
     return (
         <div className="flex h-screen items-center justify-center bg-muted/50">
             <Card className="w-full max-w-sm">
-                <CardHeader>
-                    <CardTitle className="text-2xl font-bold">Attendance System</CardTitle>
-                    <CardDescription>Login to manage cooperative attendance</CardDescription>
+                <CardHeader className="flex flex-col items-center space-y-3 text-center">
+                    <img src={Logo} alt="Barbaza MPC Attendance System logo" className="h-12 w-auto object-contain" />
+                    <div className="space-y-1">
+                        <CardTitle className="text-2xl font-bold">Barbaza MPC Attendance System</CardTitle>
+                        <CardDescription>Login to manage cooperative attendance</CardDescription>
+                    </div>
                 </CardHeader>
                 <form onSubmit={handleSubmit}>
                     <CardContent className="space-y-4">
@@ -50,7 +56,7 @@ const LoginPage = () => {
                             <label className="text-sm font-medium">Email</label>
                             <Input
                                 type="email"
-                                placeholder="admin@coop.com"
+                                placeholder="admin@barbazampc.coop"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
@@ -58,16 +64,32 @@ const LoginPage = () => {
                         </div>
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Password</label>
-                            <Input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                            />
+                            <div className="relative">
+                                <Input
+                                    type={showPassword ? 'text' : 'password'}
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="pr-10"
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword((prev) => !prev)}
+                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground focus:outline-none"
+                                    aria-pressed={showPassword}
+                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                >
+                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                            </div>
                         </div>
                     </CardContent>
                     <CardFooter>
-                        <Button className="w-full" type="submit" disabled={loading}>
+                        <Button
+                            className="w-full bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
+                            type="submit"
+                            disabled={loading}
+                        >
                             {loading ? 'Logging in...' : 'Login'}
                         </Button>
                     </CardFooter>

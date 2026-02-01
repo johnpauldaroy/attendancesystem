@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, addDoc, Timestamp, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, query, addDoc, Timestamp, deleteDoc, doc, where } from 'firebase/firestore';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -33,8 +34,11 @@ const PresentMemberPage = () => {
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [selectedMember, setSelectedMember] = useState<any>(null);
+    const [attendanceStatus, setAttendanceStatus] = useState<'PRESENT' | 'NONE'>('NONE');
     const [showWarningDialog, setShowWarningDialog] = useState(false);
     const [missingFields, setMissingFields] = useState<any[]>([]);
+    const navigate = useNavigate();
+    const [attendanceRefreshKey, setAttendanceRefreshKey] = useState(0);
     const { user } = useAuth();
 
     useEffect(() => {
@@ -42,24 +46,25 @@ const PresentMemberPage = () => {
         return () => clearTimeout(handler);
     }, [search]);
 
-    const { data: results, isLoading } = useQuery({
-        queryKey: ['members', debouncedSearch],
+    const { data: allMembers, isLoading } = useQuery({
+        queryKey: ['members'],
         queryFn: async () => {
-            if (!debouncedSearch) return null;
             const q = query(collection(db, 'members'));
             const snapshot = await getDocs(q);
-            const allMembers = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
-
-            const lowerSearch = debouncedSearch.toLowerCase();
-            return {
-                data: allMembers.filter(m =>
-                (m.full_name?.toLowerCase().includes(lowerSearch) ||
-                    m.member_no?.toLowerCase().includes(lowerSearch))
-                )
-            };
+            return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
         },
-        enabled: !!debouncedSearch,
     });
+
+    const results = useMemo(() => {
+        if (!allMembers) return [];
+        if (!debouncedSearch) return allMembers.slice(0, 20);
+
+        const lowerSearch = debouncedSearch.toLowerCase();
+        return allMembers.filter((m: any) =>
+            (m.full_name?.toLowerCase().includes(lowerSearch) ||
+                m.member_no?.toLowerCase().includes(lowerSearch))
+        );
+    }, [allMembers, debouncedSearch]);
 
     const mutation = useMutation({
         mutationFn: async (member: any) => {
@@ -128,6 +133,7 @@ const PresentMemberPage = () => {
             }
 
             setSelectedMember(null);
+            setAttendanceRefreshKey((k) => k + 1);
         },
         onError: (err: any) => {
             console.error(err);
@@ -178,8 +184,43 @@ const PresentMemberPage = () => {
         mutation.mutate(selectedMember);
     };
 
+    // Check if selected member has attendance today
+    useEffect(() => {
+        const fetchAttendanceStatus = async () => {
+            if (!selectedMember) {
+                setAttendanceStatus('NONE');
+                return;
+            }
+            try {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const tomorrow = new Date(today);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+
+                // Single-field query to avoid composite index issues; filter client-side for today range
+                const q = query(
+                    collection(db, 'attendance'),
+                    where('member_id', '==', selectedMember.id)
+                );
+                const snapshot = await getDocs(q);
+                const hasToday = snapshot.docs.some((d) => {
+                    const ts = (d.data() as any).attendance_date_time as Timestamp | undefined;
+                    if (!ts) return false;
+                    const date = ts.toDate();
+                    return date >= today && date < tomorrow;
+                });
+                setAttendanceStatus(hasToday ? 'PRESENT' : 'NONE');
+            } catch (err) {
+                console.error('Failed to check attendance status', err);
+                setAttendanceStatus('NONE');
+            }
+        };
+
+        fetchAttendanceStatus();
+    }, [selectedMember, attendanceRefreshKey]);
+
     return (
-        <div className="min-h-screen bg-muted/30 pb-24 md:pb-4">
+        <div className="min-h-screen bg-muted/30 pb-20 md:pb-8">
             <div className="container mx-auto max-w-6xl p-4 space-y-4">
                 <div className="flex items-center gap-4">
                     <Link to="/">
@@ -200,17 +241,17 @@ const PresentMemberPage = () => {
                     />
                 </div>
 
-                <div className="grid gap-4 md:gap-6 md:grid-cols-2">
-                    <Card className="h-fit">
+                <div className="grid gap-4 md:gap-6 md:grid-cols-2 items-start">
+                    <Card className="h-full">
                         <CardHeader>
                             <CardTitle className="text-lg">Search Results</CardTitle>
                         </CardHeader>
-                        <CardContent className="min-h-[300px] md:min-h-[400px]">
+                        <CardContent className="min-h-[60vh] max-h-[70vh] overflow-y-auto pr-2">
                             {isLoading ? (
                                 <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
-                            ) : results?.data && results.data.length > 0 ? (
+                            ) : results && results.length > 0 ? (
                                 <div className="space-y-2">
-                                    {results.data.map((m: any) => {
+                                    {results.map((m: any) => {
                                         const missing = validateMemberData(m);
                                         return (
                                             <div
@@ -242,17 +283,17 @@ const PresentMemberPage = () => {
                                 </div>
                             ) : (
                                 <div className="text-center p-8 text-sm md:text-base text-muted-foreground">
-                                    {debouncedSearch ? 'No members found' : 'Start typing to search...'}
+                                    {debouncedSearch ? 'No members found' : 'Showing first 20 members. Type to search the list.'}
                                 </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    <Card className="h-fit">
+                    <Card className="h-full">
                         <CardHeader>
                             <CardTitle className="text-lg">Member Details</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4 md:space-y-6 min-h-[300px] md:min-h-[400px]">
+                        <CardContent className="space-y-4 md:space-y-6">
                             {selectedMember ? (
                                 <div className="space-y-4 md:space-y-6">
                                     <div className="flex flex-col items-center gap-3 md:gap-4 pb-4 md:pb-6 border-b">
@@ -284,6 +325,12 @@ const PresentMemberPage = () => {
                                             <div className="text-muted-foreground mb-1 text-xs md:text-sm">Classification</div>
                                             <div className="font-semibold text-xs md:text-sm">{selectedMember.classification || 'N/A'}</div>
                                         </div>
+                                        <div>
+                                            <div className="text-muted-foreground mb-1 text-xs md:text-sm">Attendance Status</div>
+                                            <Badge variant={attendanceStatus === 'PRESENT' ? 'default' : 'secondary'} className="text-xs">
+                                                {attendanceStatus === 'PRESENT' ? 'PRESENT (today)' : 'Not logged today'}
+                                            </Badge>
+                                        </div>
                                     </div>
 
                                     {validateMemberData(selectedMember).length > 0 && (
@@ -297,6 +344,22 @@ const PresentMemberPage = () => {
                                             </div>
                                         </div>
                                     )}
+                                    <div className="hidden md:block pt-2">
+                                        <Button
+                                            className="w-full h-14 text-lg bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
+                                            onClick={handleLogAttendance}
+                                            disabled={mutation.isPending}
+                                        >
+                                            {mutation.isPending ? (
+                                                <>
+                                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                    Processing...
+                                                </>
+                                            ) : (
+                                                'Log Attendance'
+                                            )}
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-4">
@@ -313,7 +376,7 @@ const PresentMemberPage = () => {
             {selectedMember && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t shadow-lg md:hidden">
                     <Button
-                        className="w-full h-14 text-lg"
+                        className="w-full h-14 text-lg bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
                         onClick={handleLogAttendance}
                         disabled={mutation.isPending}
                     >
@@ -330,32 +393,6 @@ const PresentMemberPage = () => {
             )}
 
             {/* Desktop Button (hidden on mobile) */}
-            {selectedMember && (
-                <div className="hidden md:block container mx-auto max-w-6xl px-4">
-                    <div className="grid gap-6 md:grid-cols-2">
-                        <div></div>
-                        <Card>
-                            <CardContent className="pt-6">
-                                <Button
-                                    className="w-full h-14 text-lg"
-                                    onClick={handleLogAttendance}
-                                    disabled={mutation.isPending}
-                                >
-                                    {mutation.isPending ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        'Log Attendance'
-                                    )}
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
-            )}
-
             {/* Missing Fields Warning Dialog */}
             <Dialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
                 <DialogContent className="max-w-md">
@@ -387,10 +424,14 @@ const PresentMemberPage = () => {
                         <Button variant="outline" onClick={() => setShowWarningDialog(false)} className="w-full sm:w-auto">
                             Cancel
                         </Button>
-                        <Button variant="secondary" onClick={() => {
-                            setShowWarningDialog(false);
-                            window.open('/members', '_blank');
-                        }} className="w-full sm:w-auto">
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                setShowWarningDialog(false);
+                                navigate(`/members?edit=${selectedMember?.id || ''}`, { replace: false });
+                            }}
+                            className="w-full sm:w-auto"
+                        >
                             Update Profile
                         </Button>
                         <Button onClick={handleProceedAnyway} className="w-full sm:w-auto">

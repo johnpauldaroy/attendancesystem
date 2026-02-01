@@ -1,5 +1,5 @@
 import { useAuth } from '@/hooks/useAuth';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, Timestamp, query, where } from 'firebase/firestore';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, X, Save, Search, ArrowLeft, Upload, Download, Loader2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import Papa from 'papaparse';
 
@@ -21,6 +21,7 @@ const MembersPage = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingMember, setEditingMember] = useState<any>(null);
     const [isImporting, setIsImporting] = useState(false);
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const initialFormState = {
         // IDs & Status
@@ -95,11 +96,19 @@ const MembersPage = () => {
         enabled: !!user
     });
 
-    const filteredMembers = members?.filter((m: any) =>
-        m.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-        m.member_no?.toLowerCase().includes(search.toLowerCase()) ||
-        m.cif_key?.toLowerCase().includes(search.toLowerCase())
-    );
+    const filteredMembers = useMemo(() => {
+        if (!members) return [];
+        return members.filter((m: any) =>
+            m.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+            m.member_no?.toLowerCase().includes(search.toLowerCase()) ||
+            m.cif_key?.toLowerCase().includes(search.toLowerCase())
+        );
+    }, [members, search]);
+
+    const canDelete = user?.role === 'SUPER_ADMIN';
+    const canImport = user?.role === 'SUPER_ADMIN';
+    const canExport = true;
+    const canEdit = ['SUPER_ADMIN', 'BRANCH_ADMIN', 'STAFF', 'APPROVER'].includes(user?.role || '');
 
     const saveMutation = useMutation({
         mutationFn: async (data: any) => {
@@ -129,11 +138,15 @@ const MembersPage = () => {
 
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
+            if (!canDelete) throw new Error('Only Super Admin can delete members');
             await deleteDoc(doc(db, 'members', id));
         },
         onSuccess: () => {
             toast.success('Member deleted');
             queryClient.invalidateQueries({ queryKey: ['members'] });
+        },
+        onError: (err: any) => {
+            toast.error(err?.message || 'Delete not allowed');
         }
     });
 
@@ -192,6 +205,10 @@ const MembersPage = () => {
     // --- CSV Helper Functions ---
 
     const handleDownloadTemplate = () => {
+        if (!canImport) {
+            toast.error('Only Super Admin can download the template');
+            return;
+        }
         // Define specific order for the CSV template
         const headers = [
             'member_no',
@@ -242,10 +259,18 @@ const MembersPage = () => {
     };
 
     const handleImportClick = () => {
+        if (!canImport) {
+            toast.error('Only Super Admin can import records');
+            return;
+        }
         fileInputRef.current?.click();
     };
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (!canImport) {
+            toast.error('Only Super Admin can import records');
+            return;
+        }
         const file = event.target.files?.[0];
         if (!file) return;
 
@@ -338,20 +363,58 @@ const MembersPage = () => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
+    // Open edit modal when ?edit=<id> is present
+    useEffect(() => {
+        const editId = searchParams.get('edit');
+        if (!editId || !members || members.length === 0) return;
+
+        const match = members.find((m: any) => m.id === editId);
+        if (match) {
+            handleEdit(match);
+            // remove the param so it doesn't reopen repeatedly
+            searchParams.delete('edit');
+            setSearchParams(searchParams, { replace: true });
+        }
+    }, [searchParams, members]);
+
+    const handleExport = () => {
+        if (!canExport || !members || members.length === 0) {
+            toast.error('No records to export');
+            return;
+        }
+        const rows = members.map((m: any) => ({
+            member_no: m.member_no || '',
+            cif_key: m.cif_key || '',
+            full_name: m.full_name || '',
+            origin_branch_id: m.origin_branch_id || '',
+            status: m.status || '',
+            contact_no: m.contact_no || '',
+            classification: m.classification || '',
+        }));
+        const csv = Papa.unparse(rows);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'members_export.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
     return (
-        <div className="min-h-screen bg-muted/30 p-4 space-y-4">
+        <div className="min-h-screen bg-muted/30 p-3 md:p-4 space-y-4">
             <div className="container mx-auto max-w-7xl space-y-4">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-3">
                         <Link to="/">
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-4 w-4" />
                             </Button>
                         </Link>
-                        <h1 className="text-2xl font-bold">Members Management</h1>
+                        <h1 className="text-2xl font-bold leading-tight">Members Management</h1>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 md:justify-end">
                         <input
                             type="file"
                             accept=".csv"
@@ -359,12 +422,15 @@ const MembersPage = () => {
                             style={{ display: 'none' }}
                             onChange={handleFileUpload}
                         />
-                        <Button variant="outline" onClick={handleDownloadTemplate} disabled={isImporting}>
+                        <Button variant="outline" onClick={handleDownloadTemplate} disabled={isImporting || !canImport}>
                             <Download className="h-4 w-4 mr-2" /> Template
                         </Button>
-                        <Button variant="outline" onClick={handleImportClick} disabled={isImporting}>
+                        <Button variant="outline" onClick={handleImportClick} disabled={isImporting || !canImport}>
                             {isImporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
                             Import CSV
+                        </Button>
+                        <Button variant="outline" onClick={handleExport} disabled={!filteredMembers || filteredMembers.length === 0}>
+                            <Download className="h-4 w-4 mr-2" /> Export CSV
                         </Button>
                         <Button onClick={handleAddNew}>
                             <Plus className="h-4 w-4 mr-2" /> Add Member
@@ -373,63 +439,114 @@ const MembersPage = () => {
                 </div>
 
                 <Card>
-                    <CardHeader>
+                    <CardHeader className="pb-2">
                         <div className="flex items-center gap-2">
                             <Search className="h-4 w-4 text-muted-foreground" />
                             <Input
                                 placeholder="Search by name, member no, or CIF key..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className="max-w-sm"
+                                className="flex-1"
                             />
                         </div>
                     </CardHeader>
                     <CardContent className="p-0">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Member No</TableHead>
-                                    <TableHead>CIF Key</TableHead>
-                                    <TableHead>Full Name</TableHead>
-                                    <TableHead>Classification</TableHead>
-                                    <TableHead>Contact</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {isLoading ? (
-                                    <TableRow><TableCell colSpan={7} className="text-center h-24">Loading...</TableCell></TableRow>
-                                ) : filteredMembers && filteredMembers.length > 0 ? (
-                                    filteredMembers.map((m: any) => (
-                                        <TableRow key={m.id}>
-                                            <TableCell className="font-medium">{m.member_no}</TableCell>
-                                            <TableCell>{m.cif_key || '-'}</TableCell>
-                                            <TableCell>{m.full_name}</TableCell>
-                                            <TableCell>{m.classification || '-'}</TableCell>
-                                            <TableCell>{m.contact_no || '-'}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={m.status === 'ACTIVE' ? 'success' : 'secondary'}>
-                                                    {m.status}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="text-right space-x-2">
-                                                <Button variant="ghost" size="icon" onClick={() => handleEdit(m)}>
-                                                    <Pencil className="h-4 w-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
-                                                    if (confirm('Delete this member?')) deleteMutation.mutate(m.id);
-                                                }}>
+                        {/* Mobile list */}
+                        <div className="md:hidden space-y-3 p-4 pt-0">
+                            {isLoading ? (
+                                <div className="text-center text-sm text-muted-foreground py-6">Loading...</div>
+                            ) : filteredMembers && filteredMembers.length > 0 ? (
+                                filteredMembers.map((m: any) => (
+                                    <div key={m.id} className="rounded-xl border p-3 shadow-sm bg-white">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div className="text-xs text-muted-foreground">Member No</div>
+                                                <div className="font-semibold text-sm">{m.member_no}</div>
+                                                <div className="text-xs text-muted-foreground mt-1">CIF: {m.cif_key || '-'}</div>
+                                            </div>
+                                            <Badge variant={m.status === 'ACTIVE' ? 'success' : 'secondary'} className="text-[11px] px-2">
+                                                {m.status}
+                                            </Badge>
+                                        </div>
+                                        <div className="mt-2">
+                                            <div className="font-semibold">{m.full_name}</div>
+                                            <div className="text-sm text-muted-foreground">{m.classification || '-'}</div>
+                                            <div className="text-sm text-muted-foreground">{m.contact_no || '-'}</div>
+                                        </div>
+                                        <div className="mt-3 flex justify-end gap-2">
+                                            <Button variant="outline" size="sm" onClick={() => handleEdit(m)} disabled={!canEdit}>
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            {canDelete && (
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="text-destructive"
+                                                    onClick={() => {
+                                                        if (confirm('Delete this member?')) deleteMutation.mutate(m.id);
+                                                    }}
+                                                >
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow><TableCell colSpan={7} className="text-center h-24">No members found</TableCell></TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center text-sm text-muted-foreground py-6">No members found</div>
+                            )}
+                        </div>
+
+                        {/* Desktop table */}
+                        <div className="hidden md:block">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Member No</TableHead>
+                                        <TableHead>CIF Key</TableHead>
+                                        <TableHead>Full Name</TableHead>
+                                        <TableHead>Classification</TableHead>
+                                        <TableHead>Contact</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {isLoading ? (
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">Loading...</TableCell></TableRow>
+                                    ) : filteredMembers && filteredMembers.length > 0 ? (
+                                        filteredMembers.map((m: any) => (
+                                            <TableRow key={m.id}>
+                                                <TableCell className="font-medium">{m.member_no}</TableCell>
+                                                <TableCell>{m.cif_key || '-'}</TableCell>
+                                                <TableCell>{m.full_name}</TableCell>
+                                                <TableCell>{m.classification || '-'}</TableCell>
+                                                <TableCell>{m.contact_no || '-'}</TableCell>
+                                                <TableCell>
+                                                    <Badge variant={m.status === 'ACTIVE' ? 'success' : 'secondary'}>
+                                                        {m.status}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right space-x-2">
+                                                    <Button variant="ghost" size="icon" onClick={() => handleEdit(m)} disabled={!canEdit}>
+                                                        <Pencil className="h-4 w-4" />
+                                                    </Button>
+                                                    {canDelete && (
+                                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
+                                                            if (confirm('Delete this member?')) deleteMutation.mutate(m.id);
+                                                        }}>
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">No members found</TableCell></TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -472,8 +589,7 @@ const MembersPage = () => {
                                                     required
                                                     value={formData.origin_branch_id}
                                                     onChange={(e) => handleChange('origin_branch_id', e.target.value)}
-                                                    disabled={user?.role !== 'SUPER_ADMIN'}
-                                                    className={user?.role !== 'SUPER_ADMIN' ? 'bg-muted' : ''}
+                                                    placeholder="e.g. 1"
                                                 />
                                             </div>
                                         </div>
@@ -592,10 +708,7 @@ const MembersPage = () => {
                                                 <Input value={formData.unit_house_no} onChange={(e) => handleChange('unit_house_no', e.target.value)} />
                                             </div>
 
-                                            <div className="md:col-span-2">
-                                                <label className="text-sm font-medium">Full Address (Legacy/Display)</label>
-                                                <Input value={formData.address} onChange={(e) => handleChange('address', e.target.value)} placeholder="Full composite address if needed" />
-                                            </div>
+                                            {/* Full address field removed per request */}
                                             <div>
                                                 <label className="text-sm font-medium">Telephone #</label>
                                                 <Input value={formData.telephone_no} onChange={(e) => handleChange('telephone_no', e.target.value)} />
@@ -633,16 +746,13 @@ const MembersPage = () => {
                                             </div>
                                             <div>
                                                 <label className="text-sm font-medium">Segmentation</label>
-                                                <Input value={formData.segmentation} onChange={(e) => handleChange('segmentation', e.target.value)} disabled />
+                                                <Input value={formData.segmentation} onChange={(e) => handleChange('segmentation', e.target.value)} />
                                             </div>
                                             <div>
                                                 <label className="text-sm font-medium">Representative Status</label>
-                                                <Input value={formData.representatives_status} onChange={(e) => handleChange('representatives_status', e.target.value)} disabled />
+                                                <Input value={formData.representatives_status} onChange={(e) => handleChange('representatives_status', e.target.value)} />
                                             </div>
-                                            <div>
-                                                <label className="text-sm font-medium">Attendance Status</label>
-                                                <Input value={formData.attendance_status} onChange={(e) => handleChange('attendance_status', e.target.value)} disabled />
-                                            </div>
+                                            {/* Attendance Status hidden per request */}
                                         </div>
                                     </div>
 
