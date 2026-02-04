@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, addDoc, Timestamp, deleteDoc, doc, where } from 'firebase/firestore';
+import { collection, getDocs, query, addDoc, setDoc, updateDoc, getDoc, Timestamp, deleteDoc, doc, where } from 'firebase/firestore';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -16,12 +16,18 @@ import { toast } from 'sonner';
 // Validation function to check for missing critical fields
 const validateMemberData = (member: any) => {
     const criticalFields = [
-        { key: 'contact_no', label: 'Contact Number' },
-        { key: 'address', label: 'Address' },
-        { key: 'province', label: 'Province' },
-        { key: 'city_town', label: 'City/Town' },
-        { key: 'barangay_village', label: 'Barangay' },
         { key: 'birth_date', label: 'Birth Date' },
+        { key: 'age', label: 'Age' },
+        { key: 'contact_no', label: 'Contact Number' },
+        { key: 'position', label: 'Position' },
+        { key: 'tin_no', label: 'TIN #' },
+        { key: 'sss_no', label: 'SSS #' },
+        { key: 'gsis_no', label: 'GSIS #' },
+        { key: 'unit_house_no', label: 'Unit/House No.' },
+        { key: 'barangay_village', label: 'Barangay' },
+        { key: 'city_town', label: 'Town/City' },
+        { key: 'province', label: 'Province' },
+        { key: 'address', label: 'Address' },
         { key: 'sex', label: 'Sex' },
         { key: 'civil_status', label: 'Civil Status' },
     ];
@@ -35,6 +41,7 @@ const PresentMemberPage = () => {
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [selectedMember, setSelectedMember] = useState<any>(null);
     const [attendanceStatus, setAttendanceStatus] = useState<'PRESENT' | 'NONE'>('NONE');
+    const [attendanceTodayId, setAttendanceTodayId] = useState<string | null>(null);
     const [showWarningDialog, setShowWarningDialog] = useState(false);
     const [missingFields, setMissingFields] = useState<any[]>([]);
     const navigate = useNavigate();
@@ -71,6 +78,36 @@ const PresentMemberPage = () => {
             if (!user) throw new Error('Not authenticated');
 
             const now = new Date();
+            // Derive local calendar date (YYYY-MM-DD) for deterministic doc id
+            const attendanceDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                .toISOString()
+                .split('T')[0];
+            const attendanceDocId = `${member.id}_${attendanceDate}`;
+            // Prevent duplicate attendance for the same member on the same calendar day
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+
+            // Query only by member_id (avoids composite index), filter client-side for today's range
+            const existingSnapshot = await getDocs(
+                query(collection(db, 'attendance'), where('member_id', '==', member.id))
+            );
+            const alreadyLoggedToday = existingSnapshot.docs.some((d) => {
+                const data = d.data() as any;
+                const ts = data.attendance_date_time as Timestamp | undefined;
+                const statusVal = data.status;
+                if (!ts) return false;
+                const date = ts.toDate();
+                const isToday = date >= today && date < tomorrow;
+                const isActive = statusVal !== 'CANCELLED';
+                return isToday && isActive;
+            });
+
+            if (alreadyLoggedToday) {
+                throw new Error('Attendance already logged for this member today.');
+            }
+
             const originBranchId = member.origin_branch_id;
             const visitedBranchId = user.branch_id;
 
@@ -85,6 +122,7 @@ const PresentMemberPage = () => {
             }
 
             const attendanceData = {
+                attendance_date: attendanceDate,
                 member_id: member.id,
                 member: {
                     full_name: member.full_name,
@@ -104,8 +142,14 @@ const PresentMemberPage = () => {
                 notes: '',
             };
 
-            const docRef = await addDoc(collection(db, 'attendance'), attendanceData);
-            return { id: docRef.id, ...attendanceData };
+            const attendanceRef = doc(db, 'attendance', attendanceDocId);
+            const existing = await getDoc(attendanceRef);
+            if (existing.exists()) {
+                await updateDoc(attendanceRef, attendanceData);
+            } else {
+                await setDoc(attendanceRef, attendanceData);
+            }
+            return { id: attendanceDocId, ...attendanceData };
         },
         onSuccess: async (data) => {
             // Show success toast with undo button
@@ -134,20 +178,37 @@ const PresentMemberPage = () => {
 
             setSelectedMember(null);
             setAttendanceRefreshKey((k) => k + 1);
+            setAttendanceTodayId(data.id);
+            setAttendanceStatus('PRESENT');
         },
         onError: (err: any) => {
             console.error(err);
-            toast.error('Failed to log attendance');
+            const msg = err?.message || 'Failed to log attendance';
+            const code = err?.code ? ` (${err.code})` : '';
+            toast.error(`Failed to log attendance${code}: ${msg}`);
         },
     });
 
     const undoMutation = useMutation({
         mutationFn: async (attendanceId: string) => {
-            await deleteDoc(doc(db, 'attendance', attendanceId));
+            // Try cancel (update) first, fallback to delete for super admin
+            try {
+                await updateDoc(doc(db, 'attendance', attendanceId), {
+                    status: 'CANCELLED',
+                    cancelled_by_user_id: user?.uid || 'unknown',
+                    cancelled_at: Timestamp.now()
+                });
+            } catch (err) {
+                if (user?.role === 'SUPER_ADMIN') {
+                    await deleteDoc(doc(db, 'attendance', attendanceId));
+                } else {
+                    throw err;
+                }
+            }
 
             // Audit log for undo
             await addDoc(collection(db, 'audit_logs'), {
-                action_type: 'DELETE_ATTENDANCE',
+                action_type: user?.role === 'SUPER_ADMIN' ? 'DELETE_ATTENDANCE' : 'CANCEL_ATTENDANCE',
                 entity_type: 'Attendance',
                 entity_id: attendanceId,
                 actor_user_id: user?.uid || 'unknown',
@@ -159,9 +220,15 @@ const PresentMemberPage = () => {
         },
         onSuccess: () => {
             toast.success('Attendance log reverted successfully');
+            setAttendanceStatus('NONE');
+            setAttendanceTodayId(null);
+            setAttendanceRefreshKey((k) => k + 1);
+            // also force UI buttons to flip back immediately
+            setSelectedMember((prev: any) => prev ? { ...prev } : prev);
         },
-        onError: () => {
-            toast.error('Failed to undo attendance log');
+        onError: (err: any) => {
+            console.error('Undo failed', err);
+            toast.error(err?.message || 'Failed to undo attendance log');
         }
     });
 
@@ -189,6 +256,7 @@ const PresentMemberPage = () => {
         const fetchAttendanceStatus = async () => {
             if (!selectedMember) {
                 setAttendanceStatus('NONE');
+                setAttendanceTodayId(null);
                 return;
             }
             try {
@@ -203,16 +271,25 @@ const PresentMemberPage = () => {
                     where('member_id', '==', selectedMember.id)
                 );
                 const snapshot = await getDocs(q);
-                const hasToday = snapshot.docs.some((d) => {
+                let todaysId: string | null = null;
+                snapshot.docs.some((d) => {
                     const ts = (d.data() as any).attendance_date_time as Timestamp | undefined;
+                    const statusVal = (d.data() as any).status;
                     if (!ts) return false;
                     const date = ts.toDate();
-                    return date >= today && date < tomorrow;
+                    const isToday = date >= today && date < tomorrow;
+                    const isActiveAttendance = isToday && statusVal !== 'CANCELLED';
+                    if (isActiveAttendance) {
+                        todaysId = d.id;
+                    }
+                    return isActiveAttendance;
                 });
-                setAttendanceStatus(hasToday ? 'PRESENT' : 'NONE');
+                setAttendanceTodayId(todaysId);
+                setAttendanceStatus(todaysId ? 'PRESENT' : 'NONE');
             } catch (err) {
                 console.error('Failed to check attendance status', err);
                 setAttendanceStatus('NONE');
+                setAttendanceTodayId(null);
             }
         };
 
@@ -256,7 +333,11 @@ const PresentMemberPage = () => {
                                         return (
                                             <div
                                                 key={m.id}
-                                                className={`p-3 md:p-4 border rounded-lg cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted ${selectedMember?.id === m.id ? 'bg-primary/10 border-primary' : ''}`}
+                                                className={`p-3 md:p-4 border rounded-lg cursor-pointer transition-colors ${
+                                                    selectedMember?.id === m.id
+                                                        ? 'bg-[#fff9e5] border-[#f6c657] hover:bg-[#fff4d6] active:bg-[#ffe8ae]'
+                                                        : 'hover:bg-[#f4f7ff] active:bg-[#e8f0ff]'
+                                                }`}
                                                 onClick={() => setSelectedMember(m)}
                                             >
                                                 <div className="flex items-start gap-3">
@@ -266,6 +347,13 @@ const PresentMemberPage = () => {
                                                     <div className="flex-1 min-w-0">
                                                         <div className="font-semibold text-sm md:text-base truncate">{m.full_name}</div>
                                                         <div className="text-xs md:text-sm text-muted-foreground">{m.member_no}</div>
+                                                        <div className="text-[11px] md:text-xs text-muted-foreground">
+                                                            {m.origin_branch?.name
+                                                                ? `Branch: ${m.origin_branch.name}`
+                                                                : m.origin_branch_id
+                                                                    ? `Branch: ${m.origin_branch_id}`
+                                                                    : 'Branch: N/A'}
+                                                        </div>
                                                         {missing.length > 0 && (
                                                             <div className="flex items-center gap-1 mt-1">
                                                                 <AlertTriangle className="h-3 w-3 text-orange-500" />
@@ -273,9 +361,26 @@ const PresentMemberPage = () => {
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <Badge variant={m.status === 'ACTIVE' ? 'default' : 'secondary'} className="text-xs">
-                                                        {m.status || 'ACTIVE'}
-                                                    </Badge>
+                                                    <div className="flex flex-col items-end gap-1">
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="text-[11px] bg-[#eef2ff] text-[#312e81] border-none hover:bg-[#e0e7ff]"
+                                                        >
+                                                            {m.segmentation || 'No segmentation'}
+                                                        </Badge>
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none hover:bg-[#ccf1eb]"
+                                                        >
+                                                            {m.membership_type || m.classification || 'No membership status'}
+                                                        </Badge>
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="text-[11px] bg-[#fff4e6] text-[#9a3412] border-none hover:bg-[#ffe8d1]"
+                                                        >
+                                                            {m.representatives_status || 'No representative status'}
+                                                        </Badge>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
@@ -296,38 +401,56 @@ const PresentMemberPage = () => {
                         <CardContent className="space-y-4 md:space-y-6">
                             {selectedMember ? (
                                 <div className="space-y-4 md:space-y-6">
-                                    <div className="flex flex-col items-center gap-3 md:gap-4 pb-4 md:pb-6 border-b">
-                                        <div className="h-20 w-20 md:h-24 md:w-24 rounded-full bg-primary/10 flex items-center justify-center">
-                                            <User className="h-10 w-10 md:h-12 md:w-12 text-primary" />
+                                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 md:pb-6 border-b">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-primary/10 flex items-center justify-center">
+                                                <User className="h-8 w-8 md:h-10 md:w-10 text-primary" />
+                                            </div>
+                                            <div className="space-y-0.5">
+                                                <h3 className="text-base md:text-lg font-semibold">{selectedMember.full_name}</h3>
+                                                <p className="text-[11px] md:text-xs text-muted-foreground">{selectedMember.member_no}</p>
+                                                <p className="text-[11px] md:text-xs text-muted-foreground">
+                                                    Branch: {selectedMember.origin_branch?.name || selectedMember.origin_branch_id || 'N/A'}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="text-center">
-                                            <h3 className="text-xl md:text-2xl font-bold">{selectedMember.full_name}</h3>
-                                            <p className="text-sm md:text-base text-muted-foreground">{selectedMember.member_no}</p>
+                                        <div className="flex flex-col items-end gap-2 w-full md:w-auto">
+                                            <Badge className="text-[11px] bg-[#eef2ff] text-[#312e81] border-none">
+                                                {selectedMember.segmentation || 'No segmentation'}
+                                            </Badge>
+                                            <Badge className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none">
+                                                {selectedMember.membership_type || selectedMember.classification || 'No membership status'}
+                                            </Badge>
+                                            <Badge className="text-[11px] bg-[#fff4e6] text-[#9a3412] border-none">
+                                                {selectedMember.representatives_status || 'No representative status'}
+                                            </Badge>
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-3 md:gap-4 text-sm">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-5 text-[12px] sm:text-xs md:text-sm">
                                         <div>
-                                            <div className="text-muted-foreground mb-1 text-xs md:text-sm">Origin Branch</div>
-                                            <div className="font-semibold text-xs md:text-sm">{selectedMember.origin_branch?.name || selectedMember.origin_branch_id || 'N/A'}</div>
+                                            <div className="text-muted-foreground mb-0.5 text-[11px]">Origin Branch</div>
+                                            <div className="font-semibold text-xs sm:text-sm">{selectedMember.origin_branch?.name || selectedMember.origin_branch_id || 'N/A'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-muted-foreground mb-1 text-xs md:text-sm">Status</div>
-                                            <Badge variant={selectedMember.status === 'ACTIVE' ? 'default' : 'secondary'} className="text-xs">
+                                            <div className="text-muted-foreground mb-0.5 text-[11px]">Status</div>
+                                            <Badge variant={selectedMember.status === 'ACTIVE' ? 'default' : 'secondary'} className="text-[10px] px-2 py-0.5">
                                                 {selectedMember.status || 'ACTIVE'}
                                             </Badge>
                                         </div>
                                         <div>
-                                            <div className="text-muted-foreground mb-1 text-xs md:text-sm">Contact</div>
-                                            <div className="font-semibold text-xs md:text-sm">{selectedMember.contact_no || 'Not provided'}</div>
+                                            <div className="text-muted-foreground mb-0.5 text-[11px]">Contact</div>
+                                            <div className="font-semibold text-xs sm:text-sm">{selectedMember.contact_no || 'Not provided'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-muted-foreground mb-1 text-xs md:text-sm">Classification</div>
-                                            <div className="font-semibold text-xs md:text-sm">{selectedMember.classification || 'N/A'}</div>
+                                            <div className="text-muted-foreground mb-0.5 text-[11px]">Membership Status</div>
+                                            <div className="font-semibold text-xs sm:text-sm">
+                                                {selectedMember.membership_type || selectedMember.classification || 'No membership status'}
+                                            </div>
                                         </div>
                                         <div>
-                                            <div className="text-muted-foreground mb-1 text-xs md:text-sm">Attendance Status</div>
-                                            <Badge variant={attendanceStatus === 'PRESENT' ? 'default' : 'secondary'} className="text-xs">
+                                            <div className="text-muted-foreground mb-0.5 text-[11px]">Attendance Status</div>
+                                            <Badge variant={attendanceStatus === 'PRESENT' ? 'default' : 'secondary'} className="text-[10px] px-2 py-0.5">
                                                 {attendanceStatus === 'PRESENT' ? 'PRESENT (today)' : 'Not logged today'}
                                             </Badge>
                                         </div>
@@ -339,26 +462,61 @@ const PresentMemberPage = () => {
                                                 <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-orange-500 flex-shrink-0 mt-0.5" />
                                                 <div>
                                                     <div className="font-semibold text-orange-900 text-sm md:text-base">Incomplete Profile</div>
-                                                    <div className="text-xs md:text-sm text-orange-700">Some fields are missing. Please update member data.</div>
+                                                    <div className="text-xs md:text-sm text-orange-700">
+                                                        {validateMemberData(selectedMember).length} field(s) are missing. Please update member data.
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     )}
-                                    <div className="hidden md:block pt-2">
-                                        <Button
-                                            className="w-full h-14 text-lg bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
-                                            onClick={handleLogAttendance}
-                                            disabled={mutation.isPending}
-                                        >
-                                            {mutation.isPending ? (
-                                                <>
-                                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                                    Processing...
-                                                </>
-                                            ) : (
-                                                'Log Attendance'
-                                            )}
-                                        </Button>
+                                    <div className="hidden md:block pt-2 space-y-2">
+                                        {attendanceStatus === 'PRESENT' ? (
+                                            <>
+                                                <Button
+                                                    variant="outline"
+                                                    className="w-full h-12 text-base"
+                                                    onClick={() => navigate(`/members?edit=${selectedMember?.id || ''}`, { replace: false })}
+                                                >
+                                                    Update Profile
+                                                </Button>
+                                                <Button
+                                                    variant="destructive"
+                                                    className="w-full h-12 text-base"
+                                                    onClick={() => {
+                                                        if (!attendanceTodayId) {
+                                                            toast.error('No attendance record to revert for today.');
+                                                            return;
+                                                        }
+                                                        undoMutation.mutate(attendanceTodayId);
+                                                    }}
+                                                    disabled={undoMutation.isPending}
+                                                >
+                                                    {undoMutation.isPending ? (
+                                                        <>
+                                                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                            Reverting...
+                                                        </>
+                                                    ) : (
+                                                        'Revert Attendance'
+                                                    )}
+                                                </Button>
+                                            </>
+                                        ) : (
+                                            <Button
+                                                className="w-full h-14 text-lg bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
+                                                onClick={handleLogAttendance}
+                                                disabled={mutation.isPending}
+                                            >
+                                                {mutation.isPending ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                        Processing...
+                                                    </>
+                                                ) : (
+                                                    'Log Attendance'
+                                                )}
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                             ) : (
@@ -372,23 +530,56 @@ const PresentMemberPage = () => {
                 </div>
             </div>
 
-            {/* Fixed Bottom Button */}
+            {/* Fixed Bottom Button (mobile only) */}
             {selectedMember && (
                 <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t shadow-lg md:hidden">
-                    <Button
-                        className="w-full h-14 text-lg bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
-                        onClick={handleLogAttendance}
-                        disabled={mutation.isPending}
-                    >
-                        {mutation.isPending ? (
-                            <>
-                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                Processing...
-                            </>
-                        ) : (
-                            'Log Attendance'
-                        )}
-                    </Button>
+                    {attendanceStatus === 'PRESENT' ? (
+                        <div className="grid grid-cols-1 gap-3">
+                            <Button
+                                variant="outline"
+                                className="w-full h-12 text-base"
+                                onClick={() => navigate(`/members?edit=${selectedMember?.id || ''}`, { replace: false })}
+                            >
+                                Update Profile
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                className="w-full h-12 text-base"
+                                onClick={() => {
+                                    if (!attendanceTodayId) {
+                                        toast.error('No attendance record to revert for today.');
+                                        return;
+                                    }
+                                    undoMutation.mutate(attendanceTodayId);
+                                }}
+                                disabled={undoMutation.isPending}
+                            >
+                                {undoMutation.isPending ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                        Reverting...
+                                    </>
+                                ) : (
+                                    'Revert Attendance'
+                                )}
+                            </Button>
+                        </div>
+                    ) : (
+                        <Button
+                            className="w-full h-14 text-lg bg-[#2c2a9c] hover:bg-[#241f7a] text-white"
+                            onClick={handleLogAttendance}
+                            disabled={mutation.isPending}
+                        >
+                            {mutation.isPending ? (
+                                <>
+                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                    Processing...
+                                </>
+                            ) : (
+                                'Log Attendance'
+                            )}
+                        </Button>
+                    )}
                 </div>
             )}
 

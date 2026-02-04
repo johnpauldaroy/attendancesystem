@@ -45,6 +45,10 @@ service cloud.firestore {
       // In a stricter system: return isSuperAdmin() || isBranchAdmin() || isApprover() || isStaff();
     }
 
+    function sameBranch(value) {
+      return isSuperAdmin() || (value != null && getUserData().branch_id != null && value.toString() == getUserData().branch_id.toString());
+    }
+
     // --- Collections ---
 
     // Users Collection
@@ -82,32 +86,57 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAll(['status']) || request.resource.data.status in ['ACTIVE', 'INACTIVE']);
     }
 
-    // Attendance Collection
+    // Attendance Collection (one doc per member per calendar day)
     match /attendance/{attendanceId} {
-      // Anyone can read (History page)
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && sameBranch(resource.data.origin_branch_id);
 
-      // Create: Staff+ can create, but status must match rules
-      allow create: if isStaffOrAbove() && 
-        // Must validate required fields
-        request.resource.data.keys().hasAll(['member', 'origin_branch', 'visited_branch', 'attendance_date_time', 'status']) &&
-        // Status must be PENDING on creation (unless Admin)
+      allow create: if isStaffOrAbove() &&
+        request.resource.data.keys().hasAll([
+          'member_id', 'member', 'attendance_date',
+          'origin_branch_id', 'visited_branch_id',
+          'attendance_date_time', 'status'
+        ]) &&
+        attendanceId == request.resource.data.member_id + "_" + request.resource.data.attendance_date &&
+        !exists(/databases/$(database)/documents/attendance/$(attendanceId)) &&
+        sameBranch(request.resource.data.origin_branch_id) &&
         (request.resource.data.status == 'PENDING' || isAdminOrApprover());
 
-      // Update: Only Admins/Approvers can update (approve/reject)
-      // Staff cannot change an existing record
-      allow update: if isAdminOrApprover() &&
-        // Validate Status Enum
-        request.resource.data.status in ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
-      
+      allow update: if (
+          // Admin / Approver can manage statuses
+          (isAdminOrApprover() && sameBranch(resource.data.origin_branch_id) &&
+            request.resource.data.status in ['PENDING','APPROVED','REJECTED','CANCELLED'])
+          ||
+          (isAuthenticated() && request.resource.data.status == 'CANCELLED' &&
+            resource.data.created_by_user_id == request.auth.uid && sameBranch(resource.data.origin_branch_id))
+          ||
+          // Reactivate a cancelled attendance (creator or admin/approver, same branch)
+          (isAuthenticated() &&
+            resource.data.status == 'CANCELLED' &&
+            request.resource.data.status in ['PENDING','APPROVED'] &&
+            sameBranch(resource.data.origin_branch_id) &&
+            (resource.data.created_by_user_id == request.auth.uid || isAdminOrApprover()))
+        ) &&
+        attendanceId == resource.id &&
+        request.resource.data.member_id == resource.data.member_id &&
+        request.resource.data.attendance_date == resource.data.attendance_date &&
+        request.resource.data.origin_branch_id == resource.data.origin_branch_id;
+
       // Delete: Only Super Admins
       allow delete: if isSuperAdmin();
     }
 
     // Audit Logs Collection
     match /audit_logs/{logId} {
-      // Authenticated users can read
-      allow read: if isAuthenticated();
+      // READ: Branch-based access control (Super Admin sees all)
+      // Note: Audit logs don't have origin_branch_id by default, so this is optional
+      // If you want to filter audit logs by branch, add origin_branch_id to audit log creation
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        // If audit logs have entity references, you could filter by those
+        // For now, super admin only for full audit access
+        isSuperAdmin()
+      );
+      
       // Append-only: Create allowed, no update/delete
       // Anyone performing an action can log it
       allow create: if isAuthenticated();

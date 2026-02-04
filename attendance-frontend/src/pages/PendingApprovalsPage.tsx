@@ -19,15 +19,34 @@ const PendingApprovalsPage = () => {
     const { user } = useAuth();
 
     const { data: pendings, isLoading } = useQuery({
-        queryKey: ['pending-approvals'],
+        queryKey: ['pending-approvals', user?.uid],
         queryFn: async () => {
-            const q = query(collection(db, 'attendance'), where('status', '==', 'PENDING'));
+            if (!user) return { data: [] };
+
+            // Build query conditionally based on user role
+            let q;
+            if (user.role === 'SUPER_ADMIN') {
+                // Super admin sees all branches
+                q = query(
+                    collection(db, 'attendance'),
+                    where('status', '==', 'PENDING')
+                );
+            } else {
+                // Other roles see only their branch
+                q = query(
+                    collection(db, 'attendance'),
+                    where('status', '==', 'PENDING'),
+                    where('origin_branch_id', '==', String(user.branch_id))
+                );
+            }
+
             const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
             return {
                 data: data.sort((a, b) => b.attendance_date_time?.seconds - a.attendance_date_time?.seconds)
             };
-        }
+        },
+        enabled: !!user
     });
 
     const approveMutation = useMutation({

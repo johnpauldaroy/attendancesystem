@@ -46,7 +46,7 @@ const LoginPage = () => {
                 <CardHeader className="flex flex-col items-center space-y-3 text-center">
                     <img src={Logo} alt="Barbaza MPC Attendance System logo" className="h-12 w-auto object-contain" />
                     <div className="space-y-1">
-                        <CardTitle className="text-2xl font-bold">Barbaza MPC Attendance System</CardTitle>
+                        <CardTitle className="text-2xl font-bold">Attendance System</CardTitle>
                         <CardDescription>Login to manage cooperative attendance</CardDescription>
                     </div>
                 </CardHeader>

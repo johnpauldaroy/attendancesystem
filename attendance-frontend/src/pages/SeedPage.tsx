@@ -101,22 +101,34 @@ const SeedPage = () => {
             }
             toast.success('Members seeded');
 
-            // 3. Create Attendance
-            // Mock attendance
-            await addDoc(collection(db, 'attendance'), {
-                attendance_date_time: Timestamp.now(),
-                member: { full_name: 'John Doe', member_no: 'HQ01-0001', id: 'mock-id' },
+            // 3. Create Attendance (deterministic doc id per member per day)
+            const seedNow = new Date();
+            const attendanceDate = new Date(seedNow.getTime() - seedNow.getTimezoneOffset() * 60000)
+                .toISOString()
+                .split('T')[0];
+
+            await setDoc(doc(db, 'attendance', `mock-id_${attendanceDate}`), {
+                attendance_date: attendanceDate,
+                attendance_date_time: Timestamp.fromDate(seedNow),
+                member_id: 'mock-id',
+                member: { full_name: 'John Doe', member_no: 'HQ01-0001', origin_branch_id: '1' },
                 origin_branch: { name: 'Branch 1', id: '1' },
+                origin_branch_id: '1',
                 visited_branch: { name: 'Branch 1', id: '1' },
+                visited_branch_id: '1',
                 status: 'APPROVED',
                 created_by_name: 'System Admin'
             });
 
-            await addDoc(collection(db, 'attendance'), {
-                attendance_date_time: Timestamp.now(),
-                member: { full_name: 'Jane Smith', member_no: 'HQ01-0002', id: 'mock-id-2' },
+            await setDoc(doc(db, 'attendance', `mock-id-2_${attendanceDate}`), {
+                attendance_date: attendanceDate,
+                attendance_date_time: Timestamp.fromDate(seedNow),
+                member_id: 'mock-id-2',
+                member: { full_name: 'Jane Smith', member_no: 'HQ01-0002', origin_branch_id: '1' },
                 origin_branch: { name: 'Branch 1', id: '1' },
+                origin_branch_id: '1',
                 visited_branch: { name: 'Branch 2', id: '2' },
+                visited_branch_id: '2',
                 status: 'PENDING',
                 created_by_name: 'System Admin'
             });

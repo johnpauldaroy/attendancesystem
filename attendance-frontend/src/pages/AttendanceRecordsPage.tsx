@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/firebase';
-import { collection, query, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -11,17 +12,33 @@ import { ArrowLeft, Download, Calendar, MapPin, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const AttendanceRecordsPage = () => {
+    const { user } = useAuth();
     const [status, setStatus] = useState('');
     const [memberNo, setMemberNo] = useState('');
 
     const { data: recordsData, isLoading } = useQuery({
-        queryKey: ['attendance-records'],
+        queryKey: ['attendance-records', user?.uid],
         queryFn: async () => {
-            const q = query(collection(db, 'attendance'));
+            if (!user) return [];
+
+            // Build query conditionally based on user role
+            let q;
+            if (user.role === 'SUPER_ADMIN') {
+                // Super admin sees all branches
+                q = query(collection(db, 'attendance'));
+            } else {
+                // Other roles see only their branch
+                q = query(
+                    collection(db, 'attendance'),
+                    where('origin_branch_id', '==', String(user.branch_id))
+                );
+            }
+
             const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
             return data.sort((a, b) => (b.attendance_date_time?.seconds || 0) - (a.attendance_date_time?.seconds || 0));
-        }
+        },
+        enabled: !!user
     });
 
     const filteredRecords = recordsData?.filter((record: any) => {
