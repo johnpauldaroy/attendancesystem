@@ -401,29 +401,31 @@ const PresentMemberPage = () => {
                         <CardContent className="space-y-4 md:space-y-6">
                             {selectedMember ? (
                                 <div className="space-y-4 md:space-y-6">
-                                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 md:pb-6 border-b">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-primary/10 flex items-center justify-center">
-                                                <User className="h-8 w-8 md:h-10 md:w-10 text-primary" />
+                                    <div className="bg-white border border-muted rounded-lg p-3 md:p-4 flex flex-col gap-3 mb-4">
+                                        <div className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4 justify-between flex-wrap">
+                                            <div className="flex items-center gap-3 md:gap-4">
+                                                <div className="h-14 w-14 md:h-16 md:w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                                    <User className="h-7 w-7 md:h-8 md:w-8 text-primary" />
+                                                </div>
+                                                <div className="space-y-0.5">
+                                                    <h3 className="text-base md:text-lg font-semibold leading-tight">{selectedMember.full_name}</h3>
+                                                    <p className="text-[11px] md:text-xs text-muted-foreground">{selectedMember.member_no}</p>
+                                                    <p className="text-[11px] md:text-xs text-muted-foreground">
+                                                        Branch: {selectedMember.origin_branch?.name || selectedMember.origin_branch_id || 'N/A'}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="space-y-0.5">
-                                                <h3 className="text-base md:text-lg font-semibold">{selectedMember.full_name}</h3>
-                                                <p className="text-[11px] md:text-xs text-muted-foreground">{selectedMember.member_no}</p>
-                                                <p className="text-[11px] md:text-xs text-muted-foreground">
-                                                    Branch: {selectedMember.origin_branch?.name || selectedMember.origin_branch_id || 'N/A'}
-                                                </p>
+                                            <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto">
+                                                <Badge className="text-[11px] bg-[#eef2ff] text-[#312e81] border-none hover:bg-[#eef2ff]">
+                                                    {selectedMember.segmentation || 'No segmentation'}
+                                                </Badge>
+                                                <Badge className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none hover:bg-[#e0f7f4]">
+                                                    {selectedMember.membership_type || selectedMember.classification || 'No membership status'}
+                                                </Badge>
+                                                <Badge className="text-[11px] bg-[#fff4e6] text-[#9a3412] border-none hover:bg-[#fff4e6]">
+                                                    {selectedMember.representatives_status || 'No representative status'}
+                                                </Badge>
                                             </div>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-2 w-full md:w-auto">
-                                            <Badge className="text-[11px] bg-[#eef2ff] text-[#312e81] border-none">
-                                                {selectedMember.segmentation || 'No segmentation'}
-                                            </Badge>
-                                            <Badge className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none">
-                                                {selectedMember.membership_type || selectedMember.classification || 'No membership status'}
-                                            </Badge>
-                                            <Badge className="text-[11px] bg-[#fff4e6] text-[#9a3412] border-none">
-                                                {selectedMember.representatives_status || 'No representative status'}
-                                            </Badge>
                                         </div>
                                     </div>
 
