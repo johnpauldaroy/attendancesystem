@@ -670,12 +670,15 @@ const MembersPage = () => {
         }
     }, [searchParams, members]);
 
-    const handleExport = () => {
-        if (!canExport || !members || members.length === 0) {
+    const handleExport = (data: any[] | null | undefined = members) => {
+        const source = data && data.length ? data : members || [];
+
+        if (!canExport || source.length === 0) {
             toast.error('No records to export');
             return;
         }
-        const rows = members.map((m: any) => ({
+
+        const rows = source.map((m: any) => ({
             'CIFKey': m.cif_key || '',
             'Member Name': m.full_name || '',
             'Birth Date': m.birth_date || '',
@@ -1303,6 +1306,21 @@ const MemberUpdatesView = ({ user }: { user: any }) => {
         enabled: !!user
     });
 
+    const itemsPerPage = 10;
+    const [currentPage, setCurrentPage] = useState(1);
+    const totalItems = updates?.length || 0;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    const paginatedUpdates = useMemo(() => {
+        if (!updates) return [];
+        const start = (currentPage - 1) * itemsPerPage;
+        return updates.slice(start, start + itemsPerPage);
+    }, [updates, currentPage]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [branchId, updates?.length]);
+
     const handleExportUpdates = () => {
         if (!updates || updates.length === 0) {
             toast.error('No updates to export');
@@ -1351,8 +1369,8 @@ const MemberUpdatesView = ({ user }: { user: any }) => {
                         <TableBody>
                             {isLoading ? (
                                 <TableRow><TableCell colSpan={5} className="text-center h-24">Loading updates...</TableCell></TableRow>
-                            ) : updates && updates.length > 0 ? (
-                                updates.map((log: any) => (
+                            ) : paginatedUpdates && paginatedUpdates.length > 0 ? (
+                                paginatedUpdates.map((log: any) => (
                                     <TableRow key={log.id}>
                                         <TableCell className="text-xs">
                                             {log.created_at?.toDate ? log.created_at.toDate().toLocaleString() : '-'}
