@@ -23,27 +23,33 @@ const PendingApprovalsPage = () => {
         queryFn: async () => {
             if (!user) return { data: [] };
 
-            // Build query conditionally based on user role
-            let q;
+            let allDocs: any[] = [];
+
             if (user.role === 'SUPER_ADMIN') {
                 // Super admin sees all branches
-                q = query(
+                const q = query(
                     collection(db, 'attendance'),
                     where('status', '==', 'PENDING')
                 );
+                const snapshot = await getDocs(q);
+                allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             } else {
-                // Other roles see only their branch
-                q = query(
+                // Other roles see pending requests for their OWN members (Origin Branch)
+                // The visited branch does not need to approve; the origin branch confirms the attendance.
+
+                // Query: origin_branch_id matches user's branch
+                const qOrigin = query(
                     collection(db, 'attendance'),
                     where('status', '==', 'PENDING'),
-                    where('origin_branch_id', '==', String(user.branch_id))
+                    where('origin_branch_id', '==', user.branch_id)
                 );
+
+                const snapshot = await getDocs(qOrigin);
+                allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             }
 
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
             return {
-                data: data.sort((a, b) => b.attendance_date_time?.seconds - a.attendance_date_time?.seconds)
+                data: allDocs.sort((a, b) => b.attendance_date_time?.seconds - a.attendance_date_time?.seconds)
             };
         },
         enabled: !!user

@@ -34,7 +34,12 @@ const LoginPage = () => {
             navigate('/', { replace: true });
         } catch (err: any) {
             console.error(err);
-            toast.error('Login failed: ' + (err.message || 'Unknown error'));
+            const code = err?.code || '';
+            let friendly = 'Wrong email or password.';
+            if (code === 'auth/user-disabled') friendly = 'Account disabled. Please contact admin.';
+            else if (code === 'auth/user-not-found') friendly = 'No account found with that email.';
+            else if (code === 'auth/too-many-requests') friendly = 'Too many attempts. Please try again later.';
+            toast.error(friendly);
         } finally {
             setLoading(false);
         }

@@ -8,10 +8,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, FileText, Clock, User, Download, Search, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const AuditLogsPage = () => {
+    const { user, isLoading: authLoading } = useAuth();
+    if (authLoading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
+    if (!user || user.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
+
     const [searchTerm, setSearchTerm] = useState('');
     const [actionTypeFilter, setActionTypeFilter] = useState('');
     const [dateFrom, setDateFrom] = useState('');

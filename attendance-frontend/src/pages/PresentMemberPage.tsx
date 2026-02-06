@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, addDoc, setDoc, updateDoc, getDoc, Timestamp, deleteDoc, doc, where } from 'firebase/firestore';
+import { collection, getDocs, query, addDoc, setDoc, updateDoc, getDoc, Timestamp, deleteDoc, doc } from 'firebase/firestore';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -56,7 +56,8 @@ const PresentMemberPage = () => {
     const { data: allMembers, isLoading } = useQuery({
         queryKey: ['members'],
         queryFn: async () => {
-            const q = query(collection(db, 'members'));
+            const membersRef = collection(db, 'members');
+            const q = query(membersRef);
             const snapshot = await getDocs(q);
             return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
         },
@@ -68,8 +69,8 @@ const PresentMemberPage = () => {
 
         const lowerSearch = debouncedSearch.toLowerCase();
         return allMembers.filter((m: any) =>
-            (m.full_name?.toLowerCase().includes(lowerSearch) ||
-                m.member_no?.toLowerCase().includes(lowerSearch))
+        (m.full_name?.toLowerCase().includes(lowerSearch) ||
+            m.member_no?.toLowerCase().includes(lowerSearch))
         );
     }, [allMembers, debouncedSearch]);
 
@@ -82,40 +83,46 @@ const PresentMemberPage = () => {
             const attendanceDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
                 .toISOString()
                 .split('T')[0];
-            const attendanceDocId = `${member.id}_${attendanceDate}`;
+            const memberId = member.id || member.member_id || member.cif_key;
+            if (!memberId) throw new Error('Missing member identifier');
+            const attendanceDocId = `${memberId}_${attendanceDate}`;
             // Prevent duplicate attendance for the same member on the same calendar day
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             const tomorrow = new Date(today);
             tomorrow.setDate(tomorrow.getDate() + 1);
 
-            // Query only by member_id (avoids composite index), filter client-side for today's range
-            const existingSnapshot = await getDocs(
-                query(collection(db, 'attendance'), where('member_id', '==', member.id))
-            );
-            const alreadyLoggedToday = existingSnapshot.docs.some((d) => {
-                const data = d.data() as any;
-                const ts = data.attendance_date_time as Timestamp | undefined;
-                const statusVal = data.status;
-                if (!ts) return false;
-                const date = ts.toDate();
-                const isToday = date >= today && date < tomorrow;
-                const isActive = statusVal !== 'CANCELLED';
-                return isToday && isActive;
-            });
+            // Check for duplicate attendance using direct ID lookup (avoids permission issues with broad queries)
+            const attendanceRef = doc(db, 'attendance', attendanceDocId);
+            let existingDocSnap: any = null;
 
-            if (alreadyLoggedToday) {
-                throw new Error('Attendance already logged for this member today.');
+            try {
+                existingDocSnap = await getDoc(attendanceRef);
+            } catch (err: any) {
+                // If permission denied, don't block creating a new record; rules will enforce correctness on write
+                if (err.code !== 'permission-denied') throw err;
+                existingDocSnap = null;
             }
 
-            const originBranchId = member.origin_branch_id;
-            const visitedBranchId = user.branch_id;
+            if (existingDocSnap && typeof existingDocSnap.exists === 'function' && existingDocSnap.exists()) {
+                const data = existingDocSnap.data() as any;
+                if (data.status !== 'CANCELLED') {
+                    throw new Error('Attendance already logged for this member today.');
+                }
+            }
+
+            const memberOriginRaw = member.origin_branch_id ?? member.origin_branch?.id ?? null;
+            const userBranchRaw = user.branch_id ?? user.branch?.id ?? null;
+            const originBranchId = (memberOriginRaw ?? userBranchRaw ?? 'unknown').toString();
+            const visitedBranchId = userBranchRaw ? userBranchRaw.toString() : 'unknown';
+
+            const sameBranch = originBranchId !== 'unknown' && visitedBranchId !== 'unknown' && originBranchId === visitedBranchId;
 
             let status = 'PENDING';
             let approvedBy = null;
             let approvedAt = null;
 
-            if ((visitedBranchId && originBranchId && String(visitedBranchId) === String(originBranchId)) || user.role === 'SUPER_ADMIN') {
+            if (sameBranch) {
                 status = 'APPROVED';
                 approvedBy = user.uid || user.id;
                 approvedAt = Timestamp.fromDate(now);
@@ -123,15 +130,15 @@ const PresentMemberPage = () => {
 
             const attendanceData = {
                 attendance_date: attendanceDate,
-                member_id: member.id,
+                member_id: memberId,
                 member: {
                     full_name: member.full_name,
-                    member_no: member.member_no,
-                    origin_branch_id: member.origin_branch_id
+                    member_no: member.member_no || member.cif_key || memberId,
+                    origin_branch_id: originBranchId
                 },
                 origin_branch: member.origin_branch || { name: 'Unknown' },
                 origin_branch_id: originBranchId,
-                visited_branch_id: visitedBranchId || 'unknown',
+                visited_branch_id: visitedBranchId,
                 visited_branch: user.branch || { name: 'Unknown' },
                 attendance_date_time: Timestamp.fromDate(now),
                 status: status,
@@ -142,13 +149,8 @@ const PresentMemberPage = () => {
                 notes: '',
             };
 
-            const attendanceRef = doc(db, 'attendance', attendanceDocId);
-            const existing = await getDoc(attendanceRef);
-            if (existing.exists()) {
-                await updateDoc(attendanceRef, attendanceData);
-            } else {
-                await setDoc(attendanceRef, attendanceData);
-            }
+            // Write (create or overwrite cancelled/old)
+            await setDoc(attendanceRef, attendanceData);
             return { id: attendanceDocId, ...attendanceData };
         },
         onSuccess: async (data) => {
@@ -260,32 +262,40 @@ const PresentMemberPage = () => {
                 return;
             }
             try {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const tomorrow = new Date(today);
-                tomorrow.setDate(tomorrow.getDate() + 1);
+                const now = new Date();
+                // Match the date logic used in mutation
+                const attendanceDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .split('T')[0];
+                const attendanceDocId = `${selectedMember.id}_${attendanceDate}`;
 
-                // Single-field query to avoid composite index issues; filter client-side for today range
-                const q = query(
-                    collection(db, 'attendance'),
-                    where('member_id', '==', selectedMember.id)
-                );
-                const snapshot = await getDocs(q);
-                let todaysId: string | null = null;
-                snapshot.docs.some((d) => {
-                    const ts = (d.data() as any).attendance_date_time as Timestamp | undefined;
-                    const statusVal = (d.data() as any).status;
-                    if (!ts) return false;
-                    const date = ts.toDate();
-                    const isToday = date >= today && date < tomorrow;
-                    const isActiveAttendance = isToday && statusVal !== 'CANCELLED';
-                    if (isActiveAttendance) {
-                        todaysId = d.id;
+                const attendanceRef = doc(db, 'attendance', attendanceDocId);
+                let docSnap;
+                try {
+                    docSnap = await getDoc(attendanceRef);
+                } catch (e: any) {
+                    // If permission denied, we cannot confirm an existing record; allow logging rather than forcing PRESENT
+                    if (e.code === 'permission-denied') {
+                        setAttendanceTodayId(null);
+                        setAttendanceStatus('NONE');
+                        return;
                     }
-                    return isActiveAttendance;
-                });
-                setAttendanceTodayId(todaysId);
-                setAttendanceStatus(todaysId ? 'PRESENT' : 'NONE');
+                    throw e;
+                }
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data() as any;
+                    if (data.status !== 'CANCELLED') {
+                        setAttendanceTodayId(docSnap.id);
+                        setAttendanceStatus('PRESENT');
+                    } else {
+                        setAttendanceTodayId(null);
+                        setAttendanceStatus('NONE');
+                    }
+                } else {
+                    setAttendanceTodayId(null);
+                    setAttendanceStatus('NONE');
+                }
             } catch (err) {
                 console.error('Failed to check attendance status', err);
                 setAttendanceStatus('NONE');
@@ -333,11 +343,10 @@ const PresentMemberPage = () => {
                                         return (
                                             <div
                                                 key={m.id}
-                                                className={`p-3 md:p-4 border rounded-lg cursor-pointer transition-colors ${
-                                                    selectedMember?.id === m.id
-                                                        ? 'bg-[#fff9e5] border-[#f6c657] hover:bg-[#fff4d6] active:bg-[#ffe8ae]'
-                                                        : 'hover:bg-[#f4f7ff] active:bg-[#e8f0ff]'
-                                                }`}
+                                                className={`p-3 md:p-4 border rounded-lg cursor-pointer transition-colors ${selectedMember?.id === m.id
+                                                    ? 'bg-[#fff9e5] border-[#f6c657] hover:bg-[#fff4d6] active:bg-[#ffe8ae]'
+                                                    : 'hover:bg-[#f4f7ff] active:bg-[#e8f0ff]'
+                                                    }`}
                                                 onClick={() => setSelectedMember(m)}
                                             >
                                                 <div className="flex items-start gap-3">
@@ -372,7 +381,7 @@ const PresentMemberPage = () => {
                                                             variant="secondary"
                                                             className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none hover:bg-[#ccf1eb]"
                                                         >
-                                                            {m.membership_type || m.classification || 'No membership status'}
+                                                            {m.membership_status || m.membership_type || m.classification || 'No membership status'}
                                                         </Badge>
                                                         <Badge
                                                             variant="secondary"
@@ -402,8 +411,8 @@ const PresentMemberPage = () => {
                             {selectedMember ? (
                                 <div className="space-y-4 md:space-y-6">
                                     <div className="bg-white border border-muted rounded-lg p-3 md:p-4 flex flex-col gap-3 mb-4">
-                                        <div className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4 justify-between flex-wrap">
-                                            <div className="flex items-center gap-3 md:gap-4">
+                                        <div className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4 justify-between">
+                                            <div className="flex items-start gap-3 md:gap-4">
                                                 <div className="h-14 w-14 md:h-16 md:w-16 rounded-full bg-primary/10 flex items-center justify-center">
                                                     <User className="h-7 w-7 md:h-8 md:w-8 text-primary" />
                                                 </div>
@@ -415,21 +424,21 @@ const PresentMemberPage = () => {
                                                     </p>
                                                 </div>
                                             </div>
-                                            <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto">
-                                                <Badge className="text-[11px] bg-[#eef2ff] text-[#312e81] border-none hover:bg-[#eef2ff]">
+                                            <div className="flex flex-wrap gap-2 md:gap-3 justify-start items-start ml-auto w-full md:w-auto">
+                                                <Badge className="text-[11px] bg-[#eef2ff] text-[#312e81] border-none">
                                                     {selectedMember.segmentation || 'No segmentation'}
                                                 </Badge>
-                                                <Badge className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none hover:bg-[#e0f7f4]">
-                                                    {selectedMember.membership_type || selectedMember.classification || 'No membership status'}
+                                                <Badge className="text-[11px] bg-[#e0f7f4] text-[#0f766e] border-none">
+                                                    {selectedMember.membership_status || selectedMember.membership_type || selectedMember.classification || 'No membership status'}
                                                 </Badge>
-                                                <Badge className="text-[11px] bg-[#fff4e6] text-[#9a3412] border-none hover:bg-[#fff4e6]">
+                                                <Badge className="text-[11px] bg-[#fff4e6] text-[#9a3412] border-none">
                                                     {selectedMember.representatives_status || 'No representative status'}
                                                 </Badge>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-5 text-[12px] sm:text-xs md:text-sm">
+                                    <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 sm:gap-x-6 text-[12px] sm:text-xs md:text-sm">
                                         <div>
                                             <div className="text-muted-foreground mb-0.5 text-[11px]">Origin Branch</div>
                                             <div className="font-semibold text-xs sm:text-sm">{selectedMember.origin_branch?.name || selectedMember.origin_branch_id || 'N/A'}</div>
@@ -444,12 +453,12 @@ const PresentMemberPage = () => {
                                             <div className="text-muted-foreground mb-0.5 text-[11px]">Contact</div>
                                             <div className="font-semibold text-xs sm:text-sm">{selectedMember.contact_no || 'Not provided'}</div>
                                         </div>
-                                        <div>
-                                            <div className="text-muted-foreground mb-0.5 text-[11px]">Membership Status</div>
-                                            <div className="font-semibold text-xs sm:text-sm">
-                                                {selectedMember.membership_type || selectedMember.classification || 'No membership status'}
+                                            <div>
+                                                <div className="text-muted-foreground mb-0.5 text-[11px]">Membership Status</div>
+                                                <div className="font-semibold text-xs sm:text-sm">
+                                                {selectedMember.membership_status || selectedMember.membership_type || selectedMember.classification || 'No membership status'}
+                                                </div>
                                             </div>
-                                        </div>
                                         <div>
                                             <div className="text-muted-foreground mb-0.5 text-[11px]">Attendance Status</div>
                                             <Badge variant={attendanceStatus === 'PRESENT' ? 'default' : 'secondary'} className="text-[10px] px-2 py-0.5">

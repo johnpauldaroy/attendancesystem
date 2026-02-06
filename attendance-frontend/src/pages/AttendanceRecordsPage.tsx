@@ -2,52 +2,85 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, writeBatch, doc } from 'firebase/firestore';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Download, Calendar, MapPin, User } from 'lucide-react';
+import { ArrowLeft, Download, Calendar, MapPin, User, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const AttendanceRecordsPage = () => {
     const { user } = useAuth();
     const [status, setStatus] = useState('');
     const [memberNo, setMemberNo] = useState('');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
 
     const { data: recordsData, isLoading } = useQuery({
         queryKey: ['attendance-records', user?.uid],
         queryFn: async () => {
             if (!user) return [];
 
-            // Build query conditionally based on user role
-            let q;
+            let allDocs: any[] = [];
+
             if (user.role === 'SUPER_ADMIN') {
-                // Super admin sees all branches
-                q = query(collection(db, 'attendance'));
+                const q = query(collection(db, 'attendance'));
+                const snapshot = await getDocs(q);
+                allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             } else {
-                // Other roles see only their branch
-                q = query(
+                const branchValue = user.branch_id;
+                const docMap = new Map<string, any>();
+
+                const qOrigin = query(
                     collection(db, 'attendance'),
-                    where('origin_branch_id', '==', String(user.branch_id))
+                    where('origin_branch_id', '==', branchValue)
                 );
+                const originSnapshot = await getDocs(qOrigin);
+                originSnapshot.docs.forEach(doc => {
+                    docMap.set(doc.id, { id: doc.id, ...doc.data() });
+                });
+
+                const qVisited = query(
+                    collection(db, 'attendance'),
+                    where('visited_branch_id', '==', branchValue)
+                );
+                const visitedSnapshot = await getDocs(qVisited);
+                visitedSnapshot.docs.forEach(doc => {
+                    docMap.set(doc.id, { id: doc.id, ...doc.data() });
+                });
+
+                allDocs = Array.from(docMap.values());
             }
 
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-            return data.sort((a, b) => (b.attendance_date_time?.seconds || 0) - (a.attendance_date_time?.seconds || 0));
+            return allDocs.sort((a, b) => (b.attendance_date_time?.seconds || 0) - (a.attendance_date_time?.seconds || 0));
         },
         enabled: !!user
     });
 
-    const filteredRecords = recordsData?.filter((record: any) => {
+    const filteredRecords = (recordsData || []).filter((record: any) => {
         const matchesStatus = status ? record.status === status : true;
         const matchesMember = memberNo ?
             (record.member?.member_no?.toLowerCase().includes(memberNo.toLowerCase()) ||
                 record.member?.full_name?.toLowerCase().includes(memberNo.toLowerCase()))
             : true;
-        return matchesStatus && matchesMember;
+
+        const matchesDate = (() => {
+            if (!dateFrom && !dateTo) return true;
+            const dt = record.attendance_date_time?.toDate ? record.attendance_date_time.toDate() : new Date(record.attendance_date_time);
+            if (dateFrom) {
+                const start = new Date(dateFrom + 'T00:00:00');
+                if (dt < start) return false;
+            }
+            if (dateTo) {
+                const end = new Date(dateTo + 'T23:59:59.999');
+                if (dt > end) return false;
+            }
+            return true;
+        })();
+
+        return matchesStatus && matchesMember && matchesDate;
     });
 
     const getStatusBadge = (status: string) => {
@@ -92,6 +125,48 @@ const AttendanceRecordsPage = () => {
         document.body.removeChild(link);
     };
 
+    const handleClearHistory = async () => {
+        if (!recordsData || recordsData.length === 0) {
+            alert('No records to delete.');
+            return;
+        }
+
+        if (!confirm(`WARNING: This will permanently delete ${recordsData.length} attendance records.\n\nAre you sure you want to continue?`)) {
+            return;
+        }
+
+        if (!confirm('Double check: This action CANNOT be undone. Proceed?')) {
+            return;
+        }
+
+        try {
+            const chunks: any[][] = [];
+            const batchSize = 500;
+
+            for (let i = 0; i < recordsData.length; i += batchSize) {
+                chunks.push(recordsData.slice(i, i + batchSize));
+            }
+
+            let deletedCount = 0;
+
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach((docData: any) => {
+                    batch.delete(doc(db, 'attendance', docData.id));
+                });
+                await batch.commit();
+                deletedCount += chunk.length;
+            }
+
+            alert(`Successfully deleted ${deletedCount} records.`);
+            window.location.reload();
+
+        } catch (error: any) {
+            console.error('Delete error:', error);
+            alert('Failed to delete records: ' + error.message);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-muted/30 p-3 md:p-4 space-y-4">
             <div className="container mx-auto max-w-6xl space-y-4">
@@ -104,14 +179,21 @@ const AttendanceRecordsPage = () => {
                         </Link>
                         <h1 className="text-xl md:text-2xl font-bold">Attendance Records</h1>
                     </div>
-                    <Button variant="outline" onClick={handleExport} className="w-full sm:w-auto h-10">
-                        <Download className="h-4 w-4 mr-2" /> Export CSV
-                    </Button>
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        {user?.role === 'SUPER_ADMIN' && (
+                            <Button variant="destructive" onClick={handleClearHistory} className="w-full sm:w-auto h-10">
+                                <Trash2 className="h-4 w-4 mr-2" /> Clear History
+                            </Button>
+                        )}
+                        <Button variant="outline" onClick={handleExport} className="w-full sm:w-auto h-10">
+                            <Download className="h-4 w-4 mr-2" /> Export CSV
+                        </Button>
+                    </div>
                 </div>
 
                 <Card>
                     <CardHeader>
-                        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                             <div className="space-y-1 flex-1">
                                 <label className="text-xs font-medium uppercase text-muted-foreground">Status</label>
                                 <select
@@ -133,6 +215,23 @@ const AttendanceRecordsPage = () => {
                                     value={memberNo}
                                     onChange={(e) => setMemberNo(e.target.value)}
                                 />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium uppercase text-muted-foreground">Date range</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Input
+                                        type="date"
+                                        className="h-10"
+                                        value={dateFrom}
+                                        onChange={(e) => setDateFrom(e.target.value)}
+                                    />
+                                    <Input
+                                        type="date"
+                                        className="h-10"
+                                        value={dateTo}
+                                        onChange={(e) => setDateTo(e.target.value)}
+                                    />
+                                </div>
                             </div>
                         </div>
                     </CardHeader>

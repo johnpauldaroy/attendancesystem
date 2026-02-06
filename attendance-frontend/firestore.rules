@@ -41,12 +41,19 @@ service cloud.firestore {
     }
 
     function isStaffOrAbove() {
-      return isAuthenticated(); // Simplified: All authenticated users are essentially staff/active users
-      // In a stricter system: return isSuperAdmin() || isBranchAdmin() || isApprover() || isStaff();
+      return isAuthenticated();
     }
 
     function sameBranch(value) {
-      return isSuperAdmin() || (value != null && getUserData().branch_id != null && value.toString() == getUserData().branch_id.toString());
+      return isSuperAdmin() ||
+        (value != null && getUserData().branch_id != null &&
+          string(value) == string(getUserData().branch_id));
+    }
+
+    function branchFrom(req, res) {
+      return (req != null && req.origin_branch_id != null)
+        ? req.origin_branch_id
+        : (res != null ? res.origin_branch_id : null);
     }
 
     // --- Collections ---
@@ -60,35 +67,28 @@ service cloud.firestore {
     }
 
     // Members Collection
-    // Members Collection
     match /members/{memberId} {
       // READ:
-      // - Super Admin: Can read all
-      // - Others: Can only read if the member belongs to their branch
-      allow read: if isAuthenticated() && (
-        isSuperAdmin() || 
-        resource.data.origin_branch_id == getUserData().branch_id
-      );
+      allow read: if isAuthenticated();
       
-      // WRITE:
-      // - Super Admin: Can write all
-      // - Branch Admin/Approver: Can write if member belongs to their branch
-      allow write: if isAdminOrApprover() && (
-        isSuperAdmin() || 
+      // CREATE / UPDATE:
+      allow write: if request.resource != null &&
         (
-          // For Create/Update: New data must match user's branch
-          request.resource.data.origin_branch_id == getUserData().branch_id &&
-          // For Update: Existing data must also match (no taking over other branch members)
-          (resource == null || resource.data.origin_branch_id == getUserData().branch_id)
-        )
-      ) &&
-        // Schema Validation (Basic)
-        (!request.resource.data.keys().hasAll(['status']) || request.resource.data.status in ['ACTIVE', 'INACTIVE']);
+          isSuperAdmin() ||
+          sameBranch(branchFrom(request.resource.data, resource != null ? resource.data : null))
+        );
+
+      // DELETE:
+      allow delete: if isSuperAdmin() || sameBranch(resource.data.origin_branch_id);
     }
 
     // Attendance Collection (one doc per member per calendar day)
     match /attendance/{attendanceId} {
-      allow read: if isAuthenticated() && sameBranch(resource.data.origin_branch_id);
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() || 
+        sameBranch(resource.data.origin_branch_id) ||
+        (getUserData().branch_id != null && resource.data.visited_branch_id == getUserData().branch_id)
+      );
 
       allow create: if isStaffOrAbove() &&
         request.resource.data.keys().hasAll([
@@ -98,8 +98,13 @@ service cloud.firestore {
         ]) &&
         attendanceId == request.resource.data.member_id + "_" + request.resource.data.attendance_date &&
         !exists(/databases/$(database)/documents/attendance/$(attendanceId)) &&
-        sameBranch(request.resource.data.origin_branch_id) &&
-        (request.resource.data.status == 'PENDING' || isAdminOrApprover());
+        (
+          (sameBranch(request.resource.data.origin_branch_id) &&
+            request.resource.data.status in ['PENDING','APPROVED'])
+          ||
+          (!sameBranch(request.resource.data.origin_branch_id) &&
+            request.resource.data.status == 'PENDING')
+        );
 
       allow update: if (
           // Admin / Approver can manage statuses
@@ -107,14 +112,19 @@ service cloud.firestore {
             request.resource.data.status in ['PENDING','APPROVED','REJECTED','CANCELLED'])
           ||
           (isAuthenticated() && request.resource.data.status == 'CANCELLED' &&
-            resource.data.created_by_user_id == request.auth.uid && sameBranch(resource.data.origin_branch_id))
+            resource.data.created_by_user_id == request.auth.uid)
           ||
-          // Reactivate a cancelled attendance (creator or admin/approver, same branch)
+          // Reactivate a cancelled attendance (status 'PENDING') - Allow for cross-branch
           (isAuthenticated() &&
             resource.data.status == 'CANCELLED' &&
-            request.resource.data.status in ['PENDING','APPROVED'] &&
-            sameBranch(resource.data.origin_branch_id) &&
-            (resource.data.created_by_user_id == request.auth.uid || isAdminOrApprover()))
+            request.resource.data.status == 'PENDING')
+          ||
+          // Reactivate to APPROVED (must be same branch and creator/admin)
+          (isAuthenticated() &&
+             resource.data.status == 'CANCELLED' &&
+             request.resource.data.status == 'APPROVED' &&
+             sameBranch(resource.data.origin_branch_id) &&
+             (resource.data.created_by_user_id == request.auth.uid || isAdminOrApprover()))
         ) &&
         attendanceId == resource.id &&
         request.resource.data.member_id == resource.data.member_id &&
@@ -128,14 +138,8 @@ service cloud.firestore {
     // Audit Logs Collection
     match /audit_logs/{logId} {
       // READ: Branch-based access control (Super Admin sees all)
-      // Note: Audit logs don't have origin_branch_id by default, so this is optional
-      // If you want to filter audit logs by branch, add origin_branch_id to audit log creation
-      allow read: if isAuthenticated() && (
-        isSuperAdmin() ||
-        // If audit logs have entity references, you could filter by those
-        // For now, super admin only for full audit access
-        isSuperAdmin()
-      );
+      // Note: We will start saving 'branch_id' on audit logs to enable this
+      allow read: if isSuperAdmin() || (resource.data.branch_id == getUserData().branch_id);
       
       // Append-only: Create allowed, no update/delete
       // Anyone performing an action can log it

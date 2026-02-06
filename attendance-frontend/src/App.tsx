@@ -4,13 +4,11 @@ import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { auth } from '@/lib/firebase';
 import { Toaster as Sonner } from 'sonner';
 
-// Pages (to be created)
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import PresentMemberPage from '@/pages/PresentMemberPage';
 import PendingApprovalsPage from '@/pages/PendingApprovalsPage';
 import AttendanceRecordsPage from '@/pages/AttendanceRecordsPage';
-
 import MembersPage from '@/pages/MembersPage';
 import AuditLogsPage from '@/pages/AuditLogsPage';
 import SeedPage from '@/pages/SeedPage';
@@ -29,6 +27,19 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, isLoading } = useAuth();
+  const authUser = auth.currentUser;
+
+  if (isLoading || (!user && authUser)) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
@@ -79,17 +90,17 @@ function AppRoutes() {
       <Route
         path="/audit-logs"
         element={
-          <ProtectedRoute>
+          <AdminRoute>
             <AuditLogsPage />
-          </ProtectedRoute>
+          </AdminRoute>
         }
       />
       <Route
         path="/users"
         element={
-          <ProtectedRoute>
+          <AdminRoute>
             <UsersPage />
-          </ProtectedRoute>
+          </AdminRoute>
         }
       />
       <Route path="/seed" element={<SeedPage />} />

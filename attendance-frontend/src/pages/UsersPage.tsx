@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { db, functions } from '@/lib/firebase';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { initializeApp, getApp } from 'firebase/app';
 import { getAuth, signOut as secondarySignOut, createUserWithEmailAndPassword as secondaryCreateUser } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Pencil, UserPlus, ArrowLeft } from 'lucide-react';
+import { Pencil, UserPlus, ArrowLeft, Trash2, KeyRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 // Helper to create user without logging out current admin
@@ -44,8 +45,11 @@ const UsersPage = () => {
         password: '',
         role: 'STAFF',
         branch_id: '',
-        branch_name: ''
+        branch_name: '',
+        status: 'ACTIVE'
     });
+    const [passwordModalUser, setPasswordModalUser] = useState<any>(null);
+    const [passwordForm, setPasswordForm] = useState({ password: '', confirm: '' });
 
     // Check Access
     if (user && user.role !== 'SUPER_ADMIN') {
@@ -77,7 +81,8 @@ const UsersPage = () => {
                     name: updateData.name,
                     role: updateData.role,
                     branch_id: updateData.branch_id,
-                    branch: { id: updateData.branch_id, name: updateData.branch_name || `Branch ${updateData.branch_id}` }
+                    branch: { id: updateData.branch_id, name: updateData.branch_name || `Branch ${updateData.branch_id}` },
+                    status: updateData.status
                 });
             } else {
                 // Create New
@@ -91,7 +96,8 @@ const UsersPage = () => {
                         email: data.email,
                         role: data.role,
                         branch_id: data.branch_id,
-                        branch: { id: data.branch_id, name: data.branch_name || `Branch ${data.branch_id}` }
+                        branch: { id: data.branch_id, name: data.branch_name || `Branch ${data.branch_id}` },
+                        status: data.status
                     });
                 } catch (e: any) {
                     console.error(e);
@@ -107,8 +113,6 @@ const UsersPage = () => {
         onError: (err) => toast.error('Error: ' + err.message)
     });
 
-    /* Delete logic omitted for safety/complexity (requires Admin SDK to delete from Auth) */
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         saveMutation.mutate(formData);
@@ -122,9 +126,71 @@ const UsersPage = () => {
             password: '', // Leave blank
             role: u.role,
             branch_id: u.branch_id || '',
-            branch_name: u.branch?.name || ''
+            branch_name: u.branch?.name || '',
+            status: u.status || 'ACTIVE'
         });
         setIsModalOpen(true);
+    };
+
+    const deleteMutation = useMutation({
+        mutationFn: async (userId: string) => {
+            // Removes Firestore profile. Auth user removal still requires Admin SDK.
+            await deleteDoc(doc(db, 'users', userId));
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['users'] });
+            toast.success('User deleted');
+        },
+        onError: (err) => toast.error('Delete failed: ' + err.message)
+    });
+
+    const handleDelete = (u: any) => {
+        if (!user || user.role !== 'SUPER_ADMIN') return;
+        if (u.id === user.uid) {
+            toast.error("You can't delete your own account while logged in.");
+            return;
+        }
+        const confirmed = window.confirm(`Delete user "${u.name}"? This removes their profile; their Firebase Auth login stays until removed via Admin SDK.`);
+        if (confirmed) {
+            deleteMutation.mutate(u.id);
+        }
+    };
+
+    const setPasswordMutation = useMutation({
+        mutationFn: async ({ userId, password }: { userId: string; password: string }) => {
+            const callable = httpsCallable(functions, 'adminSetUserPassword');
+            await callable({ uid: userId, password });
+        },
+        onSuccess: () => {
+            toast.success('Password updated');
+            setPasswordModalUser(null);
+            setPasswordForm({ password: '', confirm: '' });
+        },
+        onError: (err: any) => {
+            const code = err?.code ? ` (${err.code})` : '';
+            const details = err?.message || 'unknown error';
+            toast.error('Password update failed' + code + ': ' + details);
+        }
+    });
+
+    const openSetPassword = (u: any) => {
+        if (!user || user.role !== 'SUPER_ADMIN') return;
+        setPasswordModalUser(u);
+        setPasswordForm({ password: '', confirm: '' });
+    };
+
+    const submitSetPassword = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!passwordModalUser) return;
+        if (passwordForm.password.length < 6) {
+            toast.error('Password must be at least 6 characters.');
+            return;
+        }
+        if (passwordForm.password !== passwordForm.confirm) {
+            toast.error('Passwords do not match.');
+            return;
+        }
+        setPasswordMutation.mutate({ userId: passwordModalUser.id, password: passwordForm.password });
     };
 
     const handleAdd = () => {
@@ -135,7 +201,8 @@ const UsersPage = () => {
             password: '',
             role: 'STAFF',
             branch_id: '',
-            branch_name: ''
+            branch_name: '',
+            status: 'ACTIVE'
         });
         setIsModalOpen(true);
     };
@@ -168,12 +235,13 @@ const UsersPage = () => {
                                     <TableHead>Email</TableHead>
                                     <TableHead>Role</TableHead>
                                     <TableHead>Branch ID</TableHead>
+                                    <TableHead>Status</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoading ? (
-                                    <TableRow><TableCell colSpan={5}>Loading...</TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={6}>Loading...</TableCell></TableRow>
                                 ) : users?.map((u: any) => (
                                     <TableRow key={u.id}>
                                         <TableCell className="font-medium">{u.name}</TableCell>
@@ -184,9 +252,30 @@ const UsersPage = () => {
                                             </Badge>
                                         </TableCell>
                                         <TableCell>{u.branch_id || '-'}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={u.status === 'ACTIVE' ? 'success' : 'secondary'} className="text-xs">
+                                                {u.status || 'ACTIVE'}
+                                            </Badge>
+                                        </TableCell>
                                         <TableCell className="text-right">
                                             <Button variant="ghost" size="icon" onClick={() => handleEdit(u)}>
                                                 <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => openSetPassword(u)}
+                                                title="Set password"
+                                            >
+                                                <KeyRound className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => handleDelete(u)}
+                                                disabled={deleteMutation.isPending}
+                                            >
+                                                <Trash2 className="h-4 w-4 text-destructive" />
                                             </Button>
                                         </TableCell>
                                     </TableRow>
@@ -210,9 +299,17 @@ const UsersPage = () => {
                                         <CardTitle className="text-base">{u.name}</CardTitle>
                                         <p className="text-xs text-muted-foreground mt-1">{u.email}</p>
                                     </div>
-                                    <Button variant="ghost" size="icon" onClick={() => handleEdit(u)} className="h-9 w-9">
-                                        <Pencil className="h-4 w-4" />
-                                    </Button>
+                                    <div className="flex gap-1">
+                                        <Button variant="ghost" size="icon" onClick={() => handleEdit(u)} className="h-9 w-9">
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => openSetPassword(u)} className="h-9 w-9" title="Set password">
+                                            <KeyRound className="h-4 w-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => handleDelete(u)} className="h-9 w-9" disabled={deleteMutation.isPending}>
+                                            <Trash2 className="h-4 w-4 text-destructive" />
+                                        </Button>
+                                    </div>
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-2 pt-0">
@@ -225,6 +322,12 @@ const UsersPage = () => {
                                 <div className="flex items-center justify-between text-sm">
                                     <span className="text-muted-foreground">Branch ID:</span>
                                     <span className="font-medium">{u.branch_id || '-'}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">Status:</span>
+                                    <Badge variant={u.status === 'ACTIVE' ? 'success' : 'secondary'} className="text-xs">
+                                        {u.status || 'ACTIVE'}
+                                    </Badge>
                                 </div>
                             </CardContent>
                         </Card>
@@ -269,10 +372,64 @@ const UsersPage = () => {
                                     <label className="text-sm font-medium">Branch ID</label>
                                     <Input value={formData.branch_id} onChange={e => setFormData({ ...formData, branch_id: e.target.value })} placeholder="e.g. 1" className="h-10 mt-1" />
                                 </div>
+                                <div>
+                                    <label className="text-sm font-medium">Status</label>
+                                    <select
+                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 mt-1"
+                                        value={formData.status}
+                                        onChange={e => setFormData({ ...formData, status: e.target.value })}
+                                    >
+                                        <option value="ACTIVE">ACTIVE</option>
+                                        <option value="INACTIVE">INACTIVE</option>
+                                    </select>
+                                </div>
                                 <div className="flex flex-col sm:flex-row justify-end gap-2 pt-4">
                                     <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)} className="w-full sm:w-auto">Cancel</Button>
                                     <Button type="submit" disabled={saveMutation.isPending} className="w-full sm:w-auto">
                                         {saveMutation.isPending ? 'Saving...' : 'Save User'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </DialogContent>
+                    </Dialog>
+                )}
+
+                {passwordModalUser && (
+                    <Dialog open={!!passwordModalUser} onOpenChange={() => setPasswordModalUser(null)}>
+                        <DialogContent className="max-w-md">
+                            <DialogHeader>
+                                <DialogTitle className="text-lg md:text-xl">Set Password</DialogTitle>
+                            </DialogHeader>
+                            <form className="space-y-4" onSubmit={submitSetPassword}>
+                                <div className="text-sm text-muted-foreground">
+                                    Set a new password for <span className="font-semibold text-foreground">{passwordModalUser.name}</span> ({passwordModalUser.email})
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium">New Password</label>
+                                    <Input
+                                        type="password"
+                                        value={passwordForm.password}
+                                        onChange={e => setPasswordForm({ ...passwordForm, password: e.target.value })}
+                                        className="h-10 mt-1"
+                                        required
+                                        minLength={6}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium">Confirm Password</label>
+                                    <Input
+                                        type="password"
+                                        value={passwordForm.confirm}
+                                        onChange={e => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
+                                        className="h-10 mt-1"
+                                        required
+                                        minLength={6}
+                                    />
+                                </div>
+                                <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+                                    <Button type="button" variant="ghost" onClick={() => setPasswordModalUser(null)} className="w-full sm:w-auto">Cancel</Button>
+                                    <Button type="submit" disabled={setPasswordMutation.isPending} className="w-full sm:w-auto">
+                                        {setPasswordMutation.isPending ? 'Saving...' : 'Update Password'}
                                     </Button>
                                 </div>
                             </form>

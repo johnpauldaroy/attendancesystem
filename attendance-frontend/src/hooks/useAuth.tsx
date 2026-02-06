@@ -9,6 +9,7 @@ interface UserData {
     email: string;
     role: 'SUPER_ADMIN' | 'BRANCH_ADMIN' | 'STAFF' | 'APPROVER';
     branch_id: number | string | null;
+    status?: 'ACTIVE' | 'INACTIVE';
     branch?: {
         id: number | string;
         name: string;
@@ -39,6 +40,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                     if (userDoc.exists()) {
                         const userData = userDoc.data() as UserData;
+                        if (userData.status === 'INACTIVE') {
+                            console.warn('User is inactive, signing out.');
+                            await signOut(auth);
+                            setUser(null);
+                            setIsLoading(false);
+                            return;
+                        }
+                        console.log('🔍 User Data from Firestore:', userData);
+                        console.log('🔍 Branch ID:', userData.branch_id, 'Type:', typeof userData.branch_id);
                         setUser({ ...firebaseUser, ...userData });
                     } else {
                         // Fallback if no user doc (shouldn't happen in prod if properly seeded)
@@ -48,7 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             name: firebaseUser.displayName || 'Unknown',
                             email: firebaseUser.email!,
                             role: 'STAFF',
-                            branch_id: null
+                            branch_id: null,
+                            status: 'ACTIVE'
                         });
                     }
                 } catch (error) {

@@ -30,6 +30,8 @@ const DashboardPage = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [showSegDialog, setShowSegDialog] = useState(false);
 
+
+
     useEffect(() => {
         if (!user) return;
 
@@ -38,78 +40,135 @@ const DashboardPage = () => {
         today.setHours(0, 0, 0, 0);
         const todayTimestamp = Timestamp.fromDate(today);
 
-        // Build query conditionally based on user role
-        let q;
+        setIsLoading(true);
+
+        const unsubscribes: Array<() => void> = [];
+        let strDocs: any[] = [];
+        let numDocs: any[] = [];
+
+        const mergeAndSet = () => {
+            const mergedMap = new Map<string, any>();
+            [...strDocs, ...numDocs].forEach((row) => mergedMap.set(row.id, row));
+            setAttendanceDocs(Array.from(mergedMap.values()));
+            setIsLoading(false);
+        };
+
+        const makeListener = (q: any, assign: (rows: any[]) => void) =>
+            onSnapshot(
+                q,
+                (snapshot: any) => {
+                    if (snapshot.docs) {
+                        assign(snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() })));
+                        mergeAndSet();
+                    }
+                },
+                (err: any) => {
+                    console.error('Attendance query failed', err);
+                    assign([]);
+                    mergeAndSet();
+                }
+            );
+
         if (user.role === 'SUPER_ADMIN') {
-            // Super admin sees all branches
-            q = query(
+            const qAll = query(
                 collection(db, 'attendance'),
                 where('attendance_date_time', '>=', todayTimestamp)
             );
+            unsubscribes.push(makeListener(qAll, (rows) => (strDocs = rows)));
         } else {
-            // Other roles see only their branch
-            q = query(
+            // Strictly query using the user's branch_id type (matches Firestore rules)
+            const branchValue = user.branch_id;
+
+            // Query 1: origin_branch_id matches user's branch_id
+            const qOrigin = query(
                 collection(db, 'attendance'),
                 where('attendance_date_time', '>=', todayTimestamp),
-                where('origin_branch_id', '==', String(user.branch_id))
+                where('origin_branch_id', '==', branchValue)
             );
+            unsubscribes.push(makeListener(qOrigin, (rows) => {
+                strDocs = rows;
+                mergeAndSet();
+            }));
+
+            // Query 2: visited_branch_id matches user's branch_id
+            const qVisited = query(
+                collection(db, 'attendance'),
+                where('attendance_date_time', '>=', todayTimestamp),
+                where('visited_branch_id', '==', branchValue)
+            );
+            unsubscribes.push(makeListener(qVisited, (rows) => {
+                numDocs = rows; // keeping variable name for now to minimize diff, acts as visitedDocs
+                mergeAndSet();
+            }));
         }
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const rows = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-            setAttendanceDocs(rows);
-            setIsLoading(false);
-        });
-
-        return () => unsubscribe();
+        return () => unsubscribes.forEach((u) => u());
     }, [user]);
 
-    // Load members map (id -> data) for segmentation lookup
+    // Load members map
     useEffect(() => {
         const fetchMembers = async () => {
+            if (!user) return;
+
+            const membersRef = collection(db, 'members');
+            let q: any = membersRef;
+
+            if (user.role !== 'SUPER_ADMIN') {
+                // Correct field name is 'origin_branch_id'
+                q = query(membersRef, where('origin_branch_id', '==', user.branch_id));
+            }
+
             try {
-                const snap = await getDocs(collection(db, 'members'));
-                const map: Record<string, any> = {};
-                snap.forEach((d) => { map[d.id] = d.data(); });
-                setMembersMap(map);
-            } catch (err) {
-                console.error('Failed to load members for segmentation summary', err);
+                const querySnapshot = await getDocs(q);
+                const members: Record<string, any> = {};
+                querySnapshot.forEach((doc: any) => {
+                    members[doc.id] = { id: doc.id, ...(doc.data() as any) };
+                });
+                setMembersMap(members);
+            } catch (error) {
+                console.error('Error fetching members:', error);
+                // Fail silently for dashboard stats if members can't be loaded, preventing red box
             }
         };
+
         fetchMembers();
-    }, []);
+    }, [user]);
 
     // Derive stats whenever attendance docs or members map change
     useEffect(() => {
-        let todayCount = 0;
-        let pendingCount = 0;
-        let approvedToday = 0;
-        const segCounts: Record<SegKey, number> = { ...emptySeg };
+        try {
+            let todayCount = 0;
+            let pendingCount = 0;
+            let approvedToday = 0;
+            const segCounts: Record<SegKey, number> = { ...emptySeg };
 
-        attendanceDocs.forEach((row: any) => {
-            todayCount++;
-            if (row.status === 'PENDING') pendingCount++;
-            if (row.status === 'APPROVED') approvedToday++;
+            attendanceDocs.forEach((row: any) => {
+                todayCount++;
+                if (row.status === 'PENDING') pendingCount++;
+                if (row.status === 'APPROVED') approvedToday++;
 
-            const memberId = row.member_id || row.member?.id;
-            const segRaw = (memberId && membersMap[memberId]?.segmentation) || row.member?.segmentation;
-            const normalized = typeof segRaw === 'string'
-                ? segRaw.trim().toLowerCase()
-                : '';
-            let label: SegKey = 'Not Segmented';
-            if (normalized === 'bronze') label = 'Bronze';
-            else if (normalized === 'silver') label = 'Silver';
-            else if (normalized === 'gold') label = 'Gold';
-            else if (normalized === 'diamond') label = 'Diamond';
-            segCounts[label] = (segCounts[label] || 0) + 1;
-        });
+                const memberId = row.member_id || row.member?.id;
+                const segRaw = (memberId && membersMap[memberId]?.segmentation) || row.member?.segmentation;
+                const normalized = typeof segRaw === 'string'
+                    ? segRaw.trim().toLowerCase()
+                    : '';
+                let label: SegKey = 'Not Segmented';
+                if (normalized === 'bronze') label = 'Bronze';
+                else if (normalized === 'silver') label = 'Silver';
+                else if (normalized === 'gold') label = 'Gold';
+                else if (normalized === 'diamond') label = 'Diamond';
+                segCounts[label] = (segCounts[label] || 0) + 1;
+            });
 
-        setStats({
-            todayCount,
-            pendingCount,
-            approvedToday,
-            segmentation: segCounts,
-        });
+            setStats({
+                todayCount,
+                pendingCount,
+                approvedToday,
+                segmentation: segCounts,
+            });
+        } catch (e) {
+            console.error("Stats calculation error:", e);
+        }
     }, [attendanceDocs, membersMap]);
 
     return (
@@ -117,7 +176,7 @@ const DashboardPage = () => {
             <div className="min-h-screen bg-muted/30">
                 <header className="border-b bg-background sticky top-0 z-10">
                     <div className="container mx-auto flex h-14 md:h-16 items-center justify-between px-4">
-                        <div className="font-bold text-lg md:text-xl text-primary">Attendance System</div>
+                        <div className="font-bold text-lg md:text-xl text-primary">Barbaza MPC Attendance System</div>
                         <div className="flex items-center gap-2 md:gap-4">
                             <div className="text-xs md:text-sm text-muted-foreground hidden sm:block">
                                 {user?.name} ({user?.role})
@@ -197,20 +256,20 @@ const DashboardPage = () => {
                             </Button>
                         </Link>
                         {user?.role === 'SUPER_ADMIN' && (
-                            <>
-                                <Link to="/users" className="w-full">
-                                    <Button size="lg" variant="outline" className="h-20 md:h-24 w-full flex-col gap-2">
-                                        <UserPlus className="h-5 w-5 md:h-6 md:w-6 text-purple-500" />
-                                        <span className="text-sm md:text-base">Manage Users</span>
-                                    </Button>
-                                </Link>
-                                <Link to="/audit-logs" className="w-full">
-                                    <Button size="lg" variant="outline" className="h-20 md:h-24 w-full flex-col gap-2">
-                                        <FileText className="h-5 w-5 md:h-6 md:w-6 text-orange-500" />
-                                        <span className="text-sm md:text-base">Audit Logs</span>
-                                    </Button>
-                                </Link>
-                            </>
+                            <Link to="/audit-logs" className="w-full">
+                                <Button size="lg" variant="outline" className="h-20 md:h-24 w-full flex-col gap-2">
+                                    <FileText className="h-5 w-5 md:h-6 md:w-6 text-orange-500" />
+                                    <span className="text-sm md:text-base">Audit Logs</span>
+                                </Button>
+                            </Link>
+                        )}
+                        {user?.role === 'SUPER_ADMIN' && (
+                            <Link to="/users" className="w-full">
+                                <Button size="lg" variant="outline" className="h-20 md:h-24 w-full flex-col gap-2">
+                                    <UserPlus className="h-5 w-5 md:h-6 md:w-6 text-purple-500" />
+                                    <span className="text-sm md:text-base">Manage Users</span>
+                                </Button>
+                            </Link>
                         )}
                     </div>
 
