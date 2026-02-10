@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
-import { auth } from '@/lib/firebase';
 import { Toaster as Sonner } from 'sonner';
 
 import LoginPage from '@/pages/LoginPage';
@@ -11,18 +10,14 @@ import PendingApprovalsPage from '@/pages/PendingApprovalsPage';
 import AttendanceRecordsPage from '@/pages/AttendanceRecordsPage';
 import MembersPage from '@/pages/MembersPage';
 import AuditLogsPage from '@/pages/AuditLogsPage';
-import SeedPage from '@/pages/SeedPage';
 import UsersPage from '@/pages/UsersPage';
 
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
-  const authUser = auth.currentUser;
 
-  // If Firebase already has a session but our context hasn't hydrated yet,
-  // wait instead of redirecting back to /login.
-  if (isLoading || (!user && authUser)) {
+  if (isLoading) {
     return <div className="flex h-screen items-center justify-center">Loading...</div>;
   }
 
@@ -32,14 +27,25 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
-  const authUser = auth.currentUser;
 
-  if (isLoading || (!user && authUser)) {
+  if (isLoading) {
     return <div className="flex h-screen items-center justify-center">Loading...</div>;
   }
 
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
+  return <>{children}</>;
+};
+
+const ReviewerRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'STAFF') return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
@@ -66,9 +72,9 @@ function AppRoutes() {
       <Route
         path="/pending"
         element={
-          <ProtectedRoute>
+          <ReviewerRoute>
             <PendingApprovalsPage />
-          </ProtectedRoute>
+          </ReviewerRoute>
         }
       />
       <Route
@@ -103,7 +109,6 @@ function AppRoutes() {
           </AdminRoute>
         }
       />
-      <Route path="/seed" element={<SeedPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

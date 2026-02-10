@@ -16,7 +16,7 @@ class AttendanceEventPolicy
             return true;
         }
 
-        return $user->role === 'APPROVER' && $user->branch_id === $attendance->origin_branch_id;
+        return in_array($user->role, ['APPROVER', 'BRANCH_ADMIN']) && $user->branch_id === $attendance->origin_branch_id;
     }
 
     /**

@@ -12,22 +12,29 @@ return new class extends Migration {
     {
         Schema::create('attendance_events', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('member_id')->constrained('members');
-            $table->foreignId('origin_branch_id')->constrained('branches')->index(); // Added index here
-            $table->foreignId('visited_branch_id')->constrained('branches');
+            $table->unsignedBigInteger('member_id');
+            $table->unsignedBigInteger('origin_branch_id')->index();
+            $table->unsignedBigInteger('visited_branch_id');
             $table->dateTime('attendance_date_time');
             $table->enum('status', ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'])->default('PENDING');
-            $table->foreignId('created_by_user_id')->constrained('users');
-            $table->foreignId('approved_by_user_id')->nullable()->constrained('users');
+            $table->unsignedBigInteger('created_by_user_id');
+            $table->unsignedBigInteger('approved_by_user_id')->nullable();
             $table->dateTime('approved_at')->nullable();
             $table->text('rejection_reason')->nullable();
             $table->text('notes')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
 
-            $table->index(['origin_branch_id', 'status', 'attendance_date_time'], 'attendance_origin_status_date_idx');
-            $table->index(['visited_branch_id', 'attendance_date_time'], 'attendance_visited_date_idx');
-            $table->index(['member_id', 'attendance_date_time'], 'attendance_member_date_idx');
+            // Explicit Foreign Keys with short, unique names
+            $table->foreign('member_id', 'ae_mem_fk')->references('id')->on('members');
+            $table->foreign('origin_branch_id', 'ae_ob_fk')->references('id')->on('branches');
+            $table->foreign('visited_branch_id', 'ae_vb_fk')->references('id')->on('branches');
+            $table->foreign('created_by_user_id', 'ae_c_fk')->references('id')->on('users');
+            $table->foreign('approved_by_user_id', 'ae_a_fk')->references('id')->on('users');
+
+            $table->index(['origin_branch_id', 'status', 'attendance_date_time'], 'ae_obsd_idx');
+            $table->index(['visited_branch_id', 'attendance_date_time'], 'ae_vbd_idx');
+            $table->index(['member_id', 'attendance_date_time'], 'ae_md_idx');
         });
     }
 

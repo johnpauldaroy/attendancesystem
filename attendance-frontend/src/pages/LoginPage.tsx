@@ -1,8 +1,7 @@
+import api from '@/lib/api';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { signInWithEmailAndPassword } from 'firebase/auth';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -16,7 +15,7 @@ const LoginPage = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, login } = useAuth();
 
     // If already authenticated, send to dashboard.
     useEffect(() => {
@@ -29,24 +28,24 @@ const LoginPage = () => {
         e.preventDefault();
         setLoading(true);
         try {
-            await signInWithEmailAndPassword(auth, email, password);
+            const response = await api.post('/login', { email, password });
+            const { access_token, user: userData } = response.data;
+
+            login(access_token, userData);
+
             toast.success('Login successful');
             navigate('/', { replace: true });
         } catch (err: any) {
             console.error(err);
-            const code = err?.code || '';
-            let friendly = 'Wrong email or password.';
-            if (code === 'auth/user-disabled') friendly = 'Account disabled. Please contact admin.';
-            else if (code === 'auth/user-not-found') friendly = 'No account found with that email.';
-            else if (code === 'auth/too-many-requests') friendly = 'Too many attempts. Please try again later.';
-            toast.error(friendly);
+            const message = err.response?.data?.message || err.response?.data?.errors?.email?.[0] || 'Wrong email or password.';
+            toast.error(message);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="flex h-screen items-center justify-center bg-muted/50">
+        <div className="flex min-h-screen items-center justify-center bg-muted/50 p-4">
             <Card className="w-full max-w-sm">
                 <CardHeader className="flex flex-col items-center space-y-3 text-center">
                     <img src={Logo} alt="Barbaza MPC Attendance System logo" className="h-12 w-auto object-contain" />

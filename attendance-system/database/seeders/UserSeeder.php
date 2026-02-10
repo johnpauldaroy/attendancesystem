@@ -11,15 +11,17 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        $password = Hash::make('password123');
+        $password = Hash::make('password');
+
+        $hq = Branch::where('code', 'HQ00')->first();
 
         // Super Admin
         User::create([
             'name' => 'HQ Super Admin',
-            'email' => 'admin@coop.com',
+            'email' => 'superadmin@example.com',
             'password' => $password,
             'role' => 'SUPER_ADMIN',
-            'branch_id' => null,
+            'branch_id' => $hq->id,
             'is_active' => true,
         ]);
 

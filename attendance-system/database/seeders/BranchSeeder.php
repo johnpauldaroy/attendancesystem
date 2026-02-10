@@ -9,9 +9,27 @@ class BranchSeeder extends Seeder
 {
     public function run(): void
     {
-        Branch::create(['name' => 'HQ Main Office', 'code' => 'HQ00']);
-        Branch::create(['name' => 'Branch North', 'code' => 'BN01']);
-        Branch::create(['name' => 'Branch South', 'code' => 'BS01']);
-        Branch::create(['name' => 'Branch East', 'code' => 'BE01']);
+        $branches = [
+            'Barbaza Main',
+            'Culasi',
+            'Sibalom',
+            'San Jose',
+            'Balasan',
+            'Barotac Viejo',
+            'Caticlan',
+            'Molo',
+            'Kalibo',
+            'Janiuay',
+            'Calinog',
+            'Sara',
+            'President Roxas',
+        ];
+
+        foreach ($branches as $name) {
+            Branch::updateOrCreate(
+                ['name' => $name],
+                ['code' => strtoupper(str_replace(' ', '_', $name))]
+            );
+        }
     }
 }

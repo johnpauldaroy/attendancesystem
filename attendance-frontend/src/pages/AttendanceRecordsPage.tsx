@@ -1,169 +1,128 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { db } from '@/lib/firebase';
-import { collection, query, where, getDocs, writeBatch, doc } from 'firebase/firestore';
+import api from '@/lib/api';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Download, Calendar, MapPin, User, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 
 const AttendanceRecordsPage = () => {
     const { user } = useAuth();
+    const queryClient = useQueryClient();
     const [status, setStatus] = useState('');
-    const [memberNo, setMemberNo] = useState('');
+    const [memberQuery, setMemberQuery] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
 
-    const { data: recordsData, isLoading } = useQuery({
-        queryKey: ['attendance-records', user?.uid],
+    const { data: response, isLoading } = useQuery({
+        queryKey: ['attendance-records', status, memberQuery, dateFrom, dateTo, currentPage],
         queryFn: async () => {
-            if (!user) return [];
-
-            let allDocs: any[] = [];
-
-            if (user.role === 'SUPER_ADMIN') {
-                const q = query(collection(db, 'attendance'));
-                const snapshot = await getDocs(q);
-                allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            } else {
-                const branchValue = user.branch_id;
-                const docMap = new Map<string, any>();
-
-                const qOrigin = query(
-                    collection(db, 'attendance'),
-                    where('origin_branch_id', '==', branchValue)
-                );
-                const originSnapshot = await getDocs(qOrigin);
-                originSnapshot.docs.forEach(doc => {
-                    docMap.set(doc.id, { id: doc.id, ...doc.data() });
-                });
-
-                const qVisited = query(
-                    collection(db, 'attendance'),
-                    where('visited_branch_id', '==', branchValue)
-                );
-                const visitedSnapshot = await getDocs(qVisited);
-                visitedSnapshot.docs.forEach(doc => {
-                    docMap.set(doc.id, { id: doc.id, ...doc.data() });
-                });
-
-                allDocs = Array.from(docMap.values());
-            }
-
-            return allDocs.sort((a, b) => (b.attendance_date_time?.seconds || 0) - (a.attendance_date_time?.seconds || 0));
+            const res = await api.get('/attendance', {
+                params: {
+                    status,
+                    member_query: memberQuery,
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    page: currentPage,
+                    per_page: 15
+                }
+            });
+            return res.data;
         },
-        enabled: !!user
+        enabled: !!user,
+        staleTime: 15_000,
+        gcTime: 300_000,
+        refetchOnWindowFocus: false,
     });
 
-    const filteredRecords = (recordsData || []).filter((record: any) => {
-        const matchesStatus = status ? record.status === status : true;
-        const matchesMember = memberNo ?
-            (record.member?.member_no?.toLowerCase().includes(memberNo.toLowerCase()) ||
-                record.member?.full_name?.toLowerCase().includes(memberNo.toLowerCase()))
-            : true;
+    const records = response?.data || [];
+    const totalPages = response?.last_page || 1;
 
-        const matchesDate = (() => {
-            if (!dateFrom && !dateTo) return true;
-            const dt = record.attendance_date_time?.toDate ? record.attendance_date_time.toDate() : new Date(record.attendance_date_time);
-            if (dateFrom) {
-                const start = new Date(dateFrom + 'T00:00:00');
-                if (dt < start) return false;
-            }
-            if (dateTo) {
-                const end = new Date(dateTo + 'T23:59:59.999');
-                if (dt > end) return false;
-            }
-            return true;
-        })();
-
-        return matchesStatus && matchesMember && matchesDate;
+    const clearHistoryMutation = useMutation({
+        mutationFn: async () => {
+            const res = await api.post('/attendance/clear-history', {
+                status,
+                member_query: memberQuery,
+                date_from: dateFrom,
+                date_to: dateTo,
+            });
+            return res.data;
+        },
+        onSuccess: (data: any) => {
+            toast.success(data?.message || 'Attendance history cleared successfully');
+            setCurrentPage(1);
+            queryClient.invalidateQueries({ queryKey: ['attendance-records'] });
+        },
+        onError: (err: any) => {
+            toast.error(err.response?.data?.message || 'Failed to clear history');
+        }
     });
+
+    const handleClearHistory = () => {
+        const hasFilters = !!status || !!memberQuery || !!dateFrom || !!dateTo;
+        const ok = confirm(
+            hasFilters
+                ? 'Clear attendance history that matches the current filters? This cannot be undone.'
+                : 'Clear all attendance history records? This cannot be undone.'
+        );
+        if (!ok) return;
+        clearHistoryMutation.mutate();
+    };
 
     const getStatusBadge = (status: string) => {
         switch (status) {
-            case 'APPROVED': return <Badge variant="success" className="text-xs">Approved</Badge>;
-            case 'PENDING': return <Badge variant="warning" className="text-xs">Pending</Badge>;
-            case 'REJECTED': return <Badge variant="destructive" className="text-xs">Rejected</Badge>;
-            default: return <Badge variant="secondary" className="text-xs">{status}</Badge>;
+            case 'APPROVED': return <Badge variant="default" className="bg-green-500 hover:bg-green-600">Approved</Badge>;
+            case 'PENDING': return <Badge variant="secondary" className="bg-orange-500 hover:bg-orange-600 text-white">Pending</Badge>;
+            case 'REJECTED': return <Badge variant="destructive">Rejected</Badge>;
+            case 'CANCELLED': return <Badge variant="outline">Cancelled</Badge>;
+            default: return <Badge variant="secondary">{status}</Badge>;
         }
     };
 
-    const handleExport = () => {
-        if (!filteredRecords || filteredRecords.length === 0) {
-            alert('No records to export');
-            return;
-        }
-
-        const headers = ["Date", "Member Name", "Member No", "Origin", "Visited", "Logged By", "Status"];
-        const rows = filteredRecords.map((row: any) => {
-            const date = row.attendance_date_time?.toDate ? row.attendance_date_time.toDate().toLocaleString() : new Date(row.attendance_date_time).toLocaleString();
-            return [
-                `"${date}"`,
-                `"${row.member?.full_name || ''}"`,
-                `"${row.member?.member_no || ''}"`,
-                `"${row.origin_branch?.name || ''}"`,
-                `"${row.visited_branch?.name || ''}"`,
-                `"${row.created_by_name || ''}"`,
-                `"${row.status}"`
-            ];
-        });
-
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + headers.join(",") + "\n"
-            + rows.map((e: any[]) => e.join(",")).join("\n");
-
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "attendance_records.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    const handleClearHistory = async () => {
-        if (!recordsData || recordsData.length === 0) {
-            alert('No records to delete.');
-            return;
-        }
-
-        if (!confirm(`WARNING: This will permanently delete ${recordsData.length} attendance records.\n\nAre you sure you want to continue?`)) {
-            return;
-        }
-
-        if (!confirm('Double check: This action CANNOT be undone. Proceed?')) {
-            return;
-        }
-
+    const handleExport = async () => {
+        // For export, we might want to fetch all or a larger chunk. 
+        // For now, we'll just export what's on the screen + maybe a few more or just the current filters.
+        toast.info('Export started...');
         try {
-            const chunks: any[][] = [];
-            const batchSize = 500;
+            const res = await api.get('/attendance', {
+                params: { status, member_query: memberQuery, date_from: dateFrom, date_to: dateTo, per_page: 1000 }
+            });
+            const data = res.data.data;
+            if (!data.length) return toast.error('No records to export');
 
-            for (let i = 0; i < recordsData.length; i += batchSize) {
-                chunks.push(recordsData.slice(i, i + batchSize));
-            }
+            const headers = ["Date", "Member Name", "CIFKEY", "Origin", "Visited", "Logged By", "Status", "Remarks"];
+            const escCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            const csvRows = data.map((row: any) => [
+                escCsv(new Date(row.attendance_date_time).toLocaleString()),
+                escCsv(row.member?.full_name || ''),
+                // Keep CIF key as text in Excel to preserve leading zeros and avoid scientific notation.
+                escCsv(`="${row.member?.cif_key || ''}"`),
+                escCsv(row.origin_branch?.name || ''),
+                escCsv(row.visited_branch?.name || ''),
+                escCsv(row.creator?.name || ''),
+                escCsv(row.status),
+                escCsv(row.status === 'REJECTED' ? (row.rejection_reason || row.notes || '') : '')
+            ].join(","));
 
-            let deletedCount = 0;
-
-            for (const chunk of chunks) {
-                const batch = writeBatch(db);
-                chunk.forEach((docData: any) => {
-                    batch.delete(doc(db, 'attendance', docData.id));
-                });
-                await batch.commit();
-                deletedCount += chunk.length;
-            }
-
-            alert(`Successfully deleted ${deletedCount} records.`);
-            window.location.reload();
-
-        } catch (error: any) {
-            console.error('Delete error:', error);
-            alert('Failed to delete records: ' + error.message);
+            const csvContent = "\ufeff" + headers.join(",") + "\n" + csvRows.join("\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "attendance_records.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            toast.error('Export failed');
         }
     };
 
@@ -173,16 +132,20 @@ const AttendanceRecordsPage = () => {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-4">
                         <Link to="/">
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-4 w-4" />
-                            </Button>
+                            <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
                         </Link>
                         <h1 className="text-xl md:text-2xl font-bold">Attendance Records</h1>
                     </div>
-                    <div className="flex gap-2 w-full sm:w-auto">
+                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                         {user?.role === 'SUPER_ADMIN' && (
-                            <Button variant="destructive" onClick={handleClearHistory} className="w-full sm:w-auto h-10">
-                                <Trash2 className="h-4 w-4 mr-2" /> Clear History
+                            <Button
+                                variant="destructive"
+                                onClick={handleClearHistory}
+                                className="w-full sm:w-auto h-10 bg-red-600 hover:bg-red-700"
+                                disabled={clearHistoryMutation.isPending}
+                            >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                {clearHistoryMutation.isPending ? 'Clearing...' : 'Clear History'}
                             </Button>
                         )}
                         <Button variant="outline" onClick={handleExport} className="w-full sm:w-auto h-10">
@@ -193,53 +156,34 @@ const AttendanceRecordsPage = () => {
 
                 <Card>
                     <CardHeader>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                            <div className="space-y-1 flex-1">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                            <div className="space-y-1">
                                 <label className="text-xs font-medium uppercase text-muted-foreground">Status</label>
-                                <select
-                                    className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-                                    value={status}
-                                    onChange={(e) => setStatus(e.target.value)}
-                                >
+                                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm" value={status} onChange={(e) => { setStatus(e.target.value); setCurrentPage(1); }}>
                                     <option value="">All Status</option>
                                     <option value="APPROVED">Approved</option>
                                     <option value="PENDING">Pending</option>
                                     <option value="REJECTED">Rejected</option>
+                                    <option value="CANCELLED">Cancelled</option>
                                 </select>
                             </div>
-                            <div className="space-y-1 flex-1">
-                                <label className="text-xs font-medium uppercase text-muted-foreground">Member search</label>
-                                <Input
-                                    className="h-10"
-                                    placeholder="Name or No..."
-                                    value={memberNo}
-                                    onChange={(e) => setMemberNo(e.target.value)}
-                                />
-                            </div>
                             <div className="space-y-1">
+                                <label className="text-xs font-medium uppercase text-muted-foreground">Member search</label>
+                                <Input className="h-10" placeholder="Name or No..." value={memberQuery} onChange={(e) => { setMemberQuery(e.target.value); setCurrentPage(1); }} />
+                            </div>
+                            <div className="space-y-1 md:col-span-2">
                                 <label className="text-xs font-medium uppercase text-muted-foreground">Date range</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <Input
-                                        type="date"
-                                        className="h-10"
-                                        value={dateFrom}
-                                        onChange={(e) => setDateFrom(e.target.value)}
-                                    />
-                                    <Input
-                                        type="date"
-                                        className="h-10"
-                                        value={dateTo}
-                                        onChange={(e) => setDateTo(e.target.value)}
-                                    />
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <Input type="date" className="h-10" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }} />
+                                    <Input type="date" className="h-10" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }} />
                                 </div>
                             </div>
                         </div>
                     </CardHeader>
 
-                    {/* Desktop Table View */}
-                    <CardContent className="p-0 hidden md:block">
+                    <CardContent className="p-0">
                         <div className="overflow-x-auto">
-                            <Table>
+                            <Table className="min-w-[980px]">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Date/Time</TableHead>
@@ -248,90 +192,46 @@ const AttendanceRecordsPage = () => {
                                         <TableHead>Visited Branch</TableHead>
                                         <TableHead>Logged By</TableHead>
                                         <TableHead>Status</TableHead>
+                                        <TableHead>Remarks</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {isLoading ? (
-                                        <TableRow><TableCell colSpan={6} className="text-center h-24">Loading records...</TableCell></TableRow>
-                                    ) : filteredRecords && filteredRecords.length > 0 ? (
-                                        filteredRecords.map((row: any) => (
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
+                                    ) : records.length > 0 ? (
+                                        records.map((row: any) => (
                                             <TableRow key={row.id}>
-                                                <TableCell className="text-xs whitespace-nowrap">
-                                                    {row.attendance_date_time?.toDate ? row.attendance_date_time.toDate().toLocaleString() : new Date(row.attendance_date_time).toLocaleString()}
-                                                </TableCell>
+                                                <TableCell className="text-xs">{new Date(row.attendance_date_time).toLocaleString()}</TableCell>
                                                 <TableCell>
                                                     <div className="font-medium text-sm">{row.member?.full_name}</div>
-                                                    <div className="text-[10px] text-muted-foreground tracking-wider">{row.member?.member_no}</div>
+                                                    {row.member?.cif_key && (
+                                                        <div className="text-[10px] text-muted-foreground">{row.member.cif_key}</div>
+                                                    )}
+                                                    <div className="text-[10px] text-muted-foreground">{row.member?.member_no}</div>
                                                 </TableCell>
-                                                <TableCell className="text-xs">{row.origin_branch?.name}</TableCell>
-                                                <TableCell className="text-xs">{row.visited_branch?.name}</TableCell>
-                                                <TableCell className="text-xs">{row.created_by_name}</TableCell>
+                                                <TableCell className="text-xs">{row.origin_branch?.name || row.origin_branch_id}</TableCell>
+                                                <TableCell className="text-xs">{row.visited_branch?.name || row.visited_branch_id}</TableCell>
+                                                <TableCell className="text-xs">{row.creator?.name || row.created_by_name}</TableCell>
                                                 <TableCell>{getStatusBadge(row.status)}</TableCell>
+                                                <TableCell className="text-xs max-w-[260px] whitespace-normal break-words">
+                                                    {row.status === 'REJECTED' ? (row.rejection_reason || row.notes || '-') : '-'}
+                                                </TableCell>
                                             </TableRow>
                                         ))
                                     ) : (
-                                        <TableRow><TableCell colSpan={6} className="text-center h-24">No records found</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">No records found</TableCell></TableRow>
                                     )}
                                 </TableBody>
                             </Table>
                         </div>
-                        <div className="p-4 border-t flex items-center justify-between text-sm text-muted-foreground">
-                            <div>Showing {filteredRecords?.length || 0} records</div>
-                        </div>
-                    </CardContent>
 
-                    {/* Mobile Card View */}
-                    <CardContent className="p-3 md:hidden space-y-3">
-                        {isLoading ? (
-                            <div className="text-center py-12 text-muted-foreground">Loading records...</div>
-                        ) : filteredRecords && filteredRecords.length > 0 ? (
-                            <>
-                                {filteredRecords.map((row: any) => (
-                                    <Card key={row.id} className="border">
-                                        <CardContent className="p-3 space-y-3">
-                                            <div className="flex items-start justify-between">
-                                                <div className="flex-1">
-                                                    <div className="font-semibold text-sm">{row.member?.full_name}</div>
-                                                    <div className="text-xs text-muted-foreground">{row.member?.member_no}</div>
-                                                </div>
-                                                {getStatusBadge(row.status)}
-                                            </div>
-                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                <Calendar className="h-3 w-3" />
-                                                <span>
-                                                    {row.attendance_date_time?.toDate ? row.attendance_date_time.toDate().toLocaleString() : new Date(row.attendance_date_time).toLocaleString()}
-                                                </span>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                                <div>
-                                                    <div className="text-muted-foreground mb-1">Origin</div>
-                                                    <div className="font-medium flex items-center gap-1">
-                                                        <MapPin className="h-3 w-3" />
-                                                        {row.origin_branch?.name}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-muted-foreground mb-1">Visited</div>
-                                                    <div className="font-medium flex items-center gap-1">
-                                                        <MapPin className="h-3 w-3" />
-                                                        {row.visited_branch?.name}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                                <User className="h-3 w-3" />
-                                                Logged by: {row.created_by_name}
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                ))}
-                                <div className="text-center text-sm text-muted-foreground pt-2">
-                                    Showing {filteredRecords.length} records
-                                </div>
-                            </>
-                        ) : (
-                            <div className="text-center py-12 text-muted-foreground">No records found</div>
-                        )}
+                        <div className="p-4 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</div>
+                            <div className="flex gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}><ChevronLeft className="h-4 w-4" /></Button>
+                                <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}><ChevronRight className="h-4 w-4" /></Button>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
