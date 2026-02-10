@@ -24,7 +24,8 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www
 
 # Copy existing application directory contents
-COPY . /var/www
+COPY attendance-system/ /var/www
+
 
 # Install dependencies
 RUN composer install --no-interaction --no-dev --optimize-autoloader
