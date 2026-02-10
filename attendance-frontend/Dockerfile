@@ -1,9 +1,13 @@
+
 # Build stage
 FROM node:18-alpine as build-stage
 WORKDIR /app
-COPY package*.json ./
+
+# copy from repo root explicitly
+COPY attendance-frontend/package*.json ./
 RUN npm install
-COPY . .
+
+COPY attendance-frontend/ ./
 RUN npm run build
 
 # Production stage
