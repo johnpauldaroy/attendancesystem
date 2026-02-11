@@ -1,0 +1,31 @@
+{
+  "Antique": {
+    "Barbaza": ["Poblacion", "Nauring", "Esparar", "Badiangan", "Tabongtabong", "General Fullon"],
+    "Culasi": ["Centro Norte", "Centro Sur", "Flores", "Batbatan", "Salde"],
+    "San Jose de Buenavista": ["Barangay 1 (Poblacion)", "Barangay 2 (Poblacion)", "Barangay 3 (Poblacion)", "Atabay", "Bugarot"],
+    "Sibalom": ["Poblacion", "Iglanot", "Bolanao", "Lacay-Doldol", "Catungan I", "Catungan II"],
+    "Hamtic": ["Poblacion I", "Poblacion II", "Poblacion III", "Buhang", "Lapak"],
+    "Pandan": ["Centro Norte", "Centro Sur", "Mag-aba", "Santa Ana"],
+    "Tibiao": ["Centro Norte", "Centro Sur", "Importante", "Barangay 9"]
+  },
+  "Aklan": {
+    "Kalibo": ["Poblacion", "Andagao", "Estancia", "Bachaw Norte", "Bachaw Sur"],
+    "Malay": ["Balabag", "Manoc-Manoc", "Yapak", "Caticlan"],
+    "Ibajay": ["Poblacion", "Onse", "Naile"]
+  },
+  "Iloilo": {
+    "Iloilo City": ["Jaro", "La Paz", "Mandurriao", "Molo", "Arevalo", "City Proper"],
+    "Janiuay": ["Aglobong", "Agcarope", "Baje", "Poblacion A", "Poblacion B"],
+    "Calinog": ["Aglibacao", "Alibunan", "Bagacay", "Carvasana"],
+    "Sara": ["Anoring", "Apelo", "Aposaga", "Barangay Uno (Poblacion)"],
+    "Barotac Viejo": ["Puerto Princesa?","Poblacion Zone I","Poblacion Zone II"],
+    "Barotac Nuevo": ["Guinobatan", "Tiwi", "Tugas", "Poblacion"],
+    "Passi City": ["Agtambi", "Agtambo", "Alimono", "Bagacay"],
+    "Lambunao": ["Aganan", "Baligasan", "Banbanan", "Baguingin"]
+  },
+  "Capiz": {
+    "Roxas City": ["Baybay", "Bato", "Cagay", "Culasi", "Dinginan", "Lanot"],
+    "Panitan": ["Agkilo", "Aglibacao", "Bahit", "Bato"],
+    "Pilar": ["Badiang", "Balogo", "Banate", "Baybay"]
+  }
+}

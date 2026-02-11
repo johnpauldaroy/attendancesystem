@@ -1,0 +1,51 @@
+{
+  "Antique": [
+    "San Jose de Buenavista",
+    "Barbaza",
+    "Culasi",
+    "Sibalom",
+    "San Remigio",
+    "Hamtic",
+    "Valderrama",
+    "Pandan",
+    "Tibiao",
+    "Caluya",
+    "Sebaste",
+    "Libertad",
+    "Laua-an",
+    "Patnongon",
+    "Belison",
+    "Bugasong"
+  ],
+  "Aklan": [
+    "Kalibo",
+    "Malay",
+    "Numancia",
+    "Ibajay",
+    "Banga",
+    "Batan",
+    "New Washington"
+  ],
+  "Iloilo": [
+    "Iloilo City",
+    "Janiuay",
+    "Calinog",
+    "Sara",
+    "Barotac Viejo",
+    "Barotac Nuevo",
+    "Pototan",
+    "Passi City",
+    "Lambunao",
+    "Oton",
+    "Miagao",
+    "Pavia"
+  ],
+  "Capiz": [
+    "Roxas City",
+    "Panay",
+    "Ivisan",
+    "Panitan",
+    "Maayon",
+    "Pilar"
+  ]
+}
