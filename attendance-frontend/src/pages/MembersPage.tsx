@@ -89,6 +89,7 @@ const MembersPage = () => {
   const [formData, setFormData] = useState(initialFormState);
   const [isExportingHistory, setIsExportingHistory] = useState(false);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; success: number; errors: number } | null>(null);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
 
   const { data: branches } = useQuery({
     queryKey: ['branches'],
@@ -255,6 +256,7 @@ const MembersPage = () => {
         skipEmptyLines: true,
         complete: async (results) => {
           const rows = results.data as any[];
+          setImportErrors([]);
           if (!rows.length) {
             toast.error('No data found in CSV');
             setIsImporting(false);
@@ -262,37 +264,50 @@ const MembersPage = () => {
             return;
           }
 
-          const batchSize = 100;
+          const batchSize = 50;
           let totalSuccess = 0;
           let totalErrors = 0;
 
           setImportProgress({ current: 0, total: rows.length, success: 0, errors: 0 });
 
-          try {
-            for (let i = 0; i < rows.length; i += batchSize) {
-              const batch = rows.slice(i, i + batchSize);
+          const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          for (let i = 0; i < rows.length; i += batchSize) {
+            const batch = rows.slice(i, i + batchSize);
+            try {
               const response = await api.post('members/import', { members: batch, skip_audit: true });
 
               totalSuccess += response.data.success_count || 0;
               totalErrors += response.data.error_count || 0;
 
-              setImportProgress({
-                current: Math.min(i + batchSize, rows.length),
-                total: rows.length,
-                success: totalSuccess,
-                errors: totalErrors
-              });
+              if (response.data.errors && response.data.errors.length > 0) {
+                setImportErrors(prev => [...prev, ...response.data.errors]);
+              }
+            } catch (error: any) {
+              console.error(`Batch starting at ${i} failed:`, error);
+              const batchError = `Batch rows ${i + 1} to ${Math.min(i + batchSize, rows.length)} failed: ${error.message || 'Server Error'}`;
+              setImportErrors(prev => [...prev, batchError]);
+              totalErrors += batch.length;
             }
 
-            toast.success(`Import completed! ${totalSuccess} successful, ${totalErrors} failed`);
-            queryClient.invalidateQueries({ queryKey: ['members'] });
-          } catch (error) {
-            toast.error('Import failed');
-          } finally {
-            setIsImporting(false);
-            setImportProgress(null);
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            setImportProgress({
+              current: Math.min(i + batchSize, rows.length),
+              total: rows.length,
+              success: totalSuccess,
+              errors: totalErrors
+            });
+
+            // Add a small delay between batches to avoid overloading the server
+            if (i + batchSize < rows.length) {
+              await sleep(300);
+            }
           }
+
+          toast.success(`Import completed! ${totalSuccess} successful, ${totalErrors} failed`);
+          queryClient.invalidateQueries({ queryKey: ['members'] });
+          setIsImporting(false);
+          setImportProgress(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
         },
       });
     };
@@ -548,6 +563,24 @@ const MembersPage = () => {
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-blue-800">
                 <span>Success: {importProgress.success}</span>
                 <span>Errors: {importProgress.errors}</span>
+                {importErrors.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([importErrors.join('\n')], { type: 'text/plain' });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `import_errors_${new Date().getTime()}.txt`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="ml-auto text-blue-900 font-bold hover:underline"
+                  >
+                    Download Error Log
+                  </button>
+                )}
               </div>
             </div>
           )}
