@@ -34,6 +34,20 @@ class MemberController extends Controller
         return $v;
     }
 
+    private static function formatDate($value)
+    {
+        if (!$value)
+            return '';
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
+        }
+        try {
+            return Carbon::parse($value)->format('Y-m-d');
+        } catch (\Exception $e) {
+            return $value;
+        }
+    }
+
     private function resolveBranchId($value)
     {
         $val = $this->normalizeValue($value);
@@ -452,14 +466,14 @@ class MemberController extends Controller
                 fputcsv($file, [
                     $cifKey,
                     $m->full_name,
-                    $m->birth_date ? $m->birth_date->format('Y-m-d') : '',
+                    static::formatDate($m->birth_date),
                     $m->age,
                     $m->address,
                     $m->telephone_no,
                     $m->contact_no,
                     $m->sex,
                     $m->civil_status,
-                    $m->date_of_membership ? $m->date_of_membership->format('Y-m-d') : '',
+                    static::formatDate($m->date_of_membership),
                     $m->classification,
                     $m->membership_type,
                     $m->membership_status,

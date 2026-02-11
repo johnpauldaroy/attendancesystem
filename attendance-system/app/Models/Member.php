@@ -45,6 +45,13 @@ class Member extends Model
         'is_temporary',
     ];
 
+    protected $casts = [
+        'birth_date' => 'date',
+        'date_of_membership' => 'date',
+        'is_temporary' => 'boolean',
+        'age' => 'integer',
+    ];
+
     public function originBranch()
     {
         return $this->belongsTo(Branch::class, 'origin_branch_id');
