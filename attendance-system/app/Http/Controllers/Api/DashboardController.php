@@ -47,10 +47,19 @@ class DashboardController extends Controller
             'Not Segmented' => 0,
         ];
 
+        $segMap = [
+            'BRONZE' => 'Bronze',
+            'SILVER' => 'Silver',
+            'GOLD' => 'Gold',
+            'DIAMOND' => 'Diamond',
+        ];
+
         foreach ($attendanceToday as $event) {
-            $seg = $event->member->segmentation ?? 'Not Segmented';
-            if (isset($segmentation[$seg])) {
-                $segmentation[$seg]++;
+            $rawSeg = $event->member->segmentation ?? null;
+            $normalized = strtoupper(trim((string) $rawSeg));
+
+            if (isset($segMap[$normalized])) {
+                $segmentation[$segMap[$normalized]]++;
             } else {
                 $segmentation['Not Segmented']++;
             }
