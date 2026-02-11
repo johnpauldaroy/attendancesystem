@@ -21,7 +21,7 @@ const PendingApprovalsPage = () => {
     const { data: response, isLoading } = useQuery({
         queryKey: ['pending-approvals', currentPage],
         queryFn: async () => {
-            const res = await api.get('/attendance/pending-approvals', {
+            const res = await api.get('attendance/pending-approvals', {
                 params: { page: currentPage }
             });
             return res.data;
@@ -34,7 +34,7 @@ const PendingApprovalsPage = () => {
 
     const approveMutation = useMutation({
         mutationFn: async (id: number | string) => {
-            await api.post(`/attendance/${id}/approve`);
+            await api.post(`attendance/${id}/approve`);
         },
         onSuccess: () => {
             toast.success('Attendance approved');
@@ -47,7 +47,7 @@ const PendingApprovalsPage = () => {
 
     const rejectMutation = useMutation({
         mutationFn: async ({ id, reason }: { id: number | string; reason: string }) => {
-            await api.post(`/attendance/${id}/reject`, { rejection_reason: reason });
+            await api.post(`attendance/${id}/reject`, { rejection_reason: reason });
         },
         onSuccess: () => {
             toast.success('Attendance rejected');

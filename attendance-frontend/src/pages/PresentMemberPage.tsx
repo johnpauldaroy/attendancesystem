@@ -70,7 +70,7 @@ const PresentMemberPage = () => {
     const { data: searchResults, isLoading } = useQuery({
         queryKey: ['members-search', debouncedSearch],
         queryFn: async () => {
-            const response = await api.get('/members/search', {
+            const response = await api.get('members/search', {
                 params: { q: debouncedSearch, per_page: 20 }
             });
             // Laravel pagination returns data in .data.data
@@ -85,7 +85,7 @@ const PresentMemberPage = () => {
     const { data: branches } = useQuery({
         queryKey: ['branches'],
         queryFn: async () => {
-            const res = await api.get('/branches');
+            const res = await api.get('branches');
             return res.data;
         },
         enabled: !!user,
@@ -97,7 +97,7 @@ const PresentMemberPage = () => {
     const { data: todayStatusData } = useQuery({
         queryKey: ['attendance-today-status', selectedMember?.id, attendanceRefreshKey],
         queryFn: async () => {
-            const response = await api.get('/attendance/today-status', {
+            const response = await api.get('attendance/today-status', {
                 params: { member_id: selectedMember.id },
             });
             return response.data;
@@ -111,7 +111,7 @@ const PresentMemberPage = () => {
 
     const mutation = useMutation({
         mutationFn: async (member: any) => {
-            const response = await api.post('/attendance', {
+            const response = await api.post('attendance', {
                 member_id: member.id,
                 attendance_date_time: new Date().toISOString(), // Laravel will handle local time
             });
@@ -134,7 +134,7 @@ const PresentMemberPage = () => {
 
     const undoMutation = useMutation({
         mutationFn: async (attendanceId: string | number) => {
-            await api.post(`/attendance/${attendanceId}/cancel`);
+            await api.post(`attendance/${attendanceId}/cancel`);
             return attendanceId;
         },
         onSuccess: () => {
@@ -174,7 +174,7 @@ const PresentMemberPage = () => {
 
         setIsCreatingGuest(true);
         try {
-            const memberResponse = await api.post('/members', {
+            const memberResponse = await api.post('members', {
                 full_name: guestData.full_name,
                 contact_no: guestData.contact_no,
                 is_temporary: true,

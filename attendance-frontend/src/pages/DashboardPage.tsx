@@ -33,7 +33,7 @@ const DashboardPage = () => {
             if (!user) return;
             if (showLoading) setIsLoading(true);
             try {
-                const response = await api.get('/dashboard/stats');
+                const response = await api.get('dashboard/stats');
                 const data = response.data;
                 setStats({
                     todayCount: data.present_today + data.pending_approvals, // Total logged today

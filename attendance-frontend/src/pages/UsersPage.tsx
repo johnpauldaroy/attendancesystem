@@ -47,7 +47,7 @@ const UsersPage = () => {
     const { data: users, isLoading } = useQuery({
         queryKey: ['users'],
         queryFn: async () => {
-            const res = await api.get('/users');
+            const res = await api.get('users');
             return res.data;
         },
         enabled: !!user
@@ -56,7 +56,7 @@ const UsersPage = () => {
     const { data: branches } = useQuery({
         queryKey: ['branches'],
         queryFn: async () => {
-            const res = await api.get('/branches');
+            const res = await api.get('branches');
             return res.data;
         },
         enabled: !!user
@@ -65,9 +65,9 @@ const UsersPage = () => {
     const saveMutation = useMutation({
         mutationFn: async (data: any) => {
             if (editingUser) {
-                await api.put(`/users/${editingUser.id}`, data);
+                await api.put(`users/${editingUser.id}`, data);
             } else {
-                await api.post('/users', data);
+                await api.post('users', data);
             }
         },
         onSuccess: () => {
@@ -82,7 +82,7 @@ const UsersPage = () => {
 
     const deleteMutation = useMutation({
         mutationFn: async (id: number) => {
-            await api.delete(`/users/${id}`);
+            await api.delete(`users/${id}`);
         },
         onSuccess: () => {
             toast.success('User deleted');
@@ -95,7 +95,7 @@ const UsersPage = () => {
 
     const passwordMutation = useMutation({
         mutationFn: async ({ id, password }: any) => {
-            await api.put(`/users/${id}`, { ...editingUser, password });
+            await api.put(`users/${id}`, { ...editingUser, password });
         },
         onSuccess: () => {
             toast.success('Password updated');
@@ -157,7 +157,7 @@ const UsersPage = () => {
                     return;
                 }
                 try {
-                    const res = await api.post('/users/import', { users: rows });
+                    const res = await api.post('users/import', { users: rows });
                     const success = res.data.success_count ?? rows.length;
                     const errors = res.data.errors ?? [];
                     if (errors.length) {
@@ -221,38 +221,38 @@ const UsersPage = () => {
                             </div>
                         )}
                         <div className="overflow-x-auto">
-                        <Table className="min-w-[720px]">
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Name</TableHead>
-                                    <TableHead>Email</TableHead>
-                                    <TableHead>Role</TableHead>
-                                    <TableHead>Branch</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {isLoading ? (
-                                    <TableRow><TableCell colSpan={6} className="text-center py-10"><Loader2 className="animate-spin h-8 w-8 mx-auto" /></TableCell></TableRow>
-                                ) : users?.map((u: any) => (
-                                    <TableRow key={u.id}>
-                                        <TableCell className="font-medium">{u.name}</TableCell>
-                                        <TableCell>{u.email}</TableCell>
-                                        <TableCell><Badge variant={u.role === 'SUPER_ADMIN' ? 'destructive' : 'secondary'}>{u.role}</Badge></TableCell>
-                                        <TableCell>{u.branch?.name || u.branch_id || '-'}</TableCell>
-                                        <TableCell><Badge variant={u.status === 'ACTIVE' ? 'default' : 'secondary'}>{u.status}</Badge></TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <Button variant="ghost" size="icon" onClick={() => handleEdit(u)}><Pencil className="h-4 w-4" /></Button>
-                                                <Button variant="ghost" size="icon" onClick={() => setPasswordModalUser(u)}><KeyRound className="h-4 w-4" /></Button>
-                                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { if (confirm('Are you sure?')) deleteMutation.mutate(u.id) }} disabled={u.id === user?.id}><Trash2 className="h-4 w-4" /></Button>
-                                            </div>
-                                        </TableCell>
+                            <Table className="min-w-[720px]">
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Name</TableHead>
+                                        <TableHead>Email</TableHead>
+                                        <TableHead>Role</TableHead>
+                                        <TableHead>Branch</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                                </TableHeader>
+                                <TableBody>
+                                    {isLoading ? (
+                                        <TableRow><TableCell colSpan={6} className="text-center py-10"><Loader2 className="animate-spin h-8 w-8 mx-auto" /></TableCell></TableRow>
+                                    ) : users?.map((u: any) => (
+                                        <TableRow key={u.id}>
+                                            <TableCell className="font-medium">{u.name}</TableCell>
+                                            <TableCell>{u.email}</TableCell>
+                                            <TableCell><Badge variant={u.role === 'SUPER_ADMIN' ? 'destructive' : 'secondary'}>{u.role}</Badge></TableCell>
+                                            <TableCell>{u.branch?.name || u.branch_id || '-'}</TableCell>
+                                            <TableCell><Badge variant={u.status === 'ACTIVE' ? 'default' : 'secondary'}>{u.status}</Badge></TableCell>
+                                            <TableCell className="text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <Button variant="ghost" size="icon" onClick={() => handleEdit(u)}><Pencil className="h-4 w-4" /></Button>
+                                                    <Button variant="ghost" size="icon" onClick={() => setPasswordModalUser(u)}><KeyRound className="h-4 w-4" /></Button>
+                                                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { if (confirm('Are you sure?')) deleteMutation.mutate(u.id) }} disabled={u.id === user?.id}><Trash2 className="h-4 w-4" /></Button>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
                         </div>
                     </CardContent>
                 </Card>

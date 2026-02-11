@@ -23,7 +23,7 @@ const AttendanceRecordsPage = () => {
     const { data: response, isLoading } = useQuery({
         queryKey: ['attendance-records', status, memberQuery, dateFrom, dateTo, currentPage],
         queryFn: async () => {
-            const res = await api.get('/attendance', {
+            const res = await api.get('attendance', {
                 params: {
                     status,
                     member_query: memberQuery,
@@ -46,7 +46,7 @@ const AttendanceRecordsPage = () => {
 
     const clearHistoryMutation = useMutation({
         mutationFn: async () => {
-            const res = await api.post('/attendance/clear-history', {
+            const res = await api.post('attendance/clear-history', {
                 status,
                 member_query: memberQuery,
                 date_from: dateFrom,
@@ -86,11 +86,9 @@ const AttendanceRecordsPage = () => {
     };
 
     const handleExport = async () => {
-        // For export, we might want to fetch all or a larger chunk. 
-        // For now, we'll just export what's on the screen + maybe a few more or just the current filters.
         toast.info('Export started...');
         try {
-            const res = await api.get('/attendance', {
+            const res = await api.get('attendance', {
                 params: { status, member_query: memberQuery, date_from: dateFrom, date_to: dateTo, per_page: 1000 }
             });
             const data = res.data.data;
@@ -101,7 +99,6 @@ const AttendanceRecordsPage = () => {
             const csvRows = data.map((row: any) => [
                 escCsv(new Date(row.attendance_date_time).toLocaleString()),
                 escCsv(row.member?.full_name || ''),
-                // Keep CIF key as text in Excel to preserve leading zeros and avoid scientific notation.
                 escCsv(`="${row.member?.cif_key || ''}"`),
                 escCsv(row.origin_branch?.name || ''),
                 escCsv(row.visited_branch?.name || ''),

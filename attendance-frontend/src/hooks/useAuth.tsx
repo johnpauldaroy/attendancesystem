@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setUser(userData);
 
                     // Verify token and get fresh data
-                    const response = await api.get('/me');
+                    const response = await api.get('me');
                     if (response.data) {
                         setUser(response.data);
                         localStorage.setItem('user_data', JSON.stringify(response.data));
@@ -65,7 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const logout = async () => {
         try {
-            await api.post('/logout');
+            await api.post('logout');
         } catch (error) {
             console.error('Logout failed', error);
         } finally {

@@ -28,7 +28,7 @@ const LoginPage = () => {
         e.preventDefault();
         setLoading(true);
         try {
-            const response = await api.post('/login', { email, password });
+            const response = await api.post('login', { email, password });
             const { access_token, user: userData } = response.data;
 
             login(access_token, userData);

@@ -28,7 +28,7 @@ const AuditLogsPage = () => {
     const { data: response, isLoading } = useQuery({
         queryKey: ['audit-logs', actionTypeFilter, dateFrom, dateTo, currentPage, itemsPerPage],
         queryFn: async () => {
-            const res = await api.get('/audit-logs', {
+            const res = await api.get('audit-logs', {
                 params: {
                     action_type: actionTypeFilter,
                     date_from: dateFrom,
@@ -58,7 +58,7 @@ const AuditLogsPage = () => {
     const exportToCSV = async () => {
         toast.info('Export started...');
         try {
-            const res = await api.get('/audit-logs', {
+            const res = await api.get('audit-logs', {
                 params: { action_type: actionTypeFilter, date_from: dateFrom, date_to: dateTo, per_page: 1000 }
             });
             const data = res.data.data;

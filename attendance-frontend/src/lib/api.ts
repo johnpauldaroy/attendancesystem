@@ -3,7 +3,8 @@ import axios from 'axios';
 const getBaseURL = () => {
     let url = import.meta.env.VITE_API_URL || 'https://apiattendance.barbazampc.cloud/api';
     url = url.trim().replace(/\/+$/, ''); // Trim and remove trailing slashes
-    return url.endsWith('/api') ? url : `${url}/api`;
+    url = url.endsWith('/api') ? url : `${url}/api`;
+    return `${url}/`; // ALWAYS ensure it ends with a slash so 'login' becomes '.../api/login'
 };
 
 const api = axios.create({

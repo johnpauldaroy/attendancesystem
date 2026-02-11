@@ -93,7 +93,7 @@ const MembersPage = () => {
   const { data: branches } = useQuery({
     queryKey: ['branches'],
     queryFn: async () => {
-      const res = await api.get('/branches');
+      const res = await api.get('branches');
       return res.data;
     },
     enabled: !!user,
@@ -105,7 +105,7 @@ const MembersPage = () => {
   const { data: provinces } = useQuery({
     queryKey: ['provinces'],
     queryFn: async () => {
-      const res = await api.get('/locations/provinces');
+      const res = await api.get('locations/provinces');
       return res.data;
     },
     enabled: !!user,
@@ -117,7 +117,7 @@ const MembersPage = () => {
   const { data: cities } = useQuery({
     queryKey: ['cities', formData.province],
     queryFn: async () => {
-      const res = await api.get('/locations/cities', { params: { province: formData.province } });
+      const res = await api.get('locations/cities', { params: { province: formData.province } });
       return res.data;
     },
     enabled: !!user && !!formData.province,
@@ -129,7 +129,7 @@ const MembersPage = () => {
   const { data: barangays } = useQuery({
     queryKey: ['barangays', formData.province, formData.city_town],
     queryFn: async () => {
-      const res = await api.get('/locations/barangays', { params: { province: formData.province, city: formData.city_town } });
+      const res = await api.get('locations/barangays', { params: { province: formData.province, city: formData.city_town } });
       return res.data;
     },
     enabled: !!user && !!formData.province && !!formData.city_town,
@@ -157,7 +157,7 @@ const MembersPage = () => {
   const { data: membersResponse, isLoading } = useQuery({
     queryKey: ['members', debouncedSearch, selectedBranch, currentPage],
     queryFn: async () => {
-      const response = await api.get('/members/search', {
+      const response = await api.get('members/search', {
         params: {
           q: debouncedSearch,
           branch_id: selectedBranch,
@@ -182,7 +182,7 @@ const MembersPage = () => {
   const { data: auditResponse, isLoading: isHistoryLoading } = useQuery({
     queryKey: ['audit-logs', historyPage, selectedBranch],
     queryFn: async () => {
-      const res = await api.get('/audit-logs', { params: { action_type: 'MEMBER_UPDATE', per_page: 10, page: historyPage, branch_id: selectedBranch === 'all' ? undefined : selectedBranch } });
+      const res = await api.get('audit-logs', { params: { action_type: 'MEMBER_UPDATE', per_page: 10, page: historyPage, branch_id: selectedBranch === 'all' ? undefined : selectedBranch } });
       return res.data;
     },
     enabled: !!user && activeTab === 'history',
@@ -204,9 +204,9 @@ const MembersPage = () => {
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
       if (editingMember) {
-        await api.put(`/members/${editingMember.id}`, data);
+        await api.put(`members/${editingMember.id}`, data);
       } else {
-        await api.post('/members', data);
+        await api.post('members', data);
       }
     },
     onSuccess: () => {
@@ -223,9 +223,9 @@ const MembersPage = () => {
     mutationFn: async (ids: number | number[]) => {
       const payload = Array.isArray(ids) ? ids : [ids];
       if (payload.length === 1) {
-        await api.delete(`/members/${payload[0]}`);
+        await api.delete(`members/${payload[0]}`);
       } else {
-        await api.delete('/members/bulk', { data: { ids: payload } });
+        await api.delete('members/bulk', { data: { ids: payload } });
       }
     },
     onSuccess: () => {
@@ -271,7 +271,7 @@ const MembersPage = () => {
           try {
             for (let i = 0; i < rows.length; i += batchSize) {
               const batch = rows.slice(i, i + batchSize);
-              const response = await api.post('/members/import', { members: batch, skip_audit: true });
+              const response = await api.post('members/import', { members: batch, skip_audit: true });
 
               totalSuccess += response.data.success_count || 0;
               totalErrors += response.data.error_count || 0;
@@ -323,7 +323,7 @@ const MembersPage = () => {
 
   const openEditById = async (id: string) => {
     try {
-      const res = await api.get(`/members/${id}`);
+      const res = await api.get(`members/${id}`);
       const member = res.data?.data ?? res.data;
       if (!member) throw new Error('Member not found');
       handleEdit(member);
@@ -350,7 +350,7 @@ const MembersPage = () => {
       const rows: any[] = [];
 
       do {
-        const res = await api.get('/members/search', {
+        const res = await api.get('members/search', {
           params: { q: debouncedSearch, branch_id: selectedBranch, page, per_page: perPage },
         });
 
@@ -440,7 +440,7 @@ const MembersPage = () => {
   const handleExportHistory = async () => {
     setIsExportingHistory(true);
     try {
-      const response = await api.get('/audit-logs/export', {
+      const response = await api.get('audit-logs/export', {
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
