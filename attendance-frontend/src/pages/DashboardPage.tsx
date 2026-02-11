@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
-import { LogOut, UserPlus, ClipboardList, CheckCircle, FileText, Key } from 'lucide-react';
+import { LogOut, UserPlus, ClipboardList, CheckCircle, FileText, Key, Eye, EyeOff } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
@@ -36,6 +36,11 @@ const DashboardPage = () => {
         newPassword: '',
         confirmPassword: '',
     });
+    const [showPasswords, setShowPasswords] = useState({
+        current: false,
+        new: false,
+        confirm: false,
+    });
 
     const resetPasswordForm = () => {
         setPasswordForm({
@@ -43,6 +48,15 @@ const DashboardPage = () => {
             newPassword: '',
             confirmPassword: '',
         });
+        setShowPasswords({
+            current: false,
+            new: false,
+            confirm: false,
+        });
+    };
+
+    const togglePasswordVisibility = (field: 'current' | 'new' | 'confirm') => {
+        setShowPasswords((prev) => ({ ...prev, [field]: !prev[field] }));
     };
 
     const handlePasswordDialogChange = (open: boolean) => {
@@ -264,35 +278,71 @@ const DashboardPage = () => {
                     <form onSubmit={handleChangePassword} className="space-y-4">
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Current Password</label>
-                            <Input
-                                type="password"
-                                value={passwordForm.currentPassword}
-                                onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                                autoComplete="current-password"
-                                required
-                            />
+                            <div className="relative">
+                                <Input
+                                    type={showPasswords.current ? 'text' : 'password'}
+                                    value={passwordForm.currentPassword}
+                                    onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                                    autoComplete="current-password"
+                                    className="pr-10"
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => togglePasswordVisibility('current')}
+                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground focus:outline-none"
+                                    aria-pressed={showPasswords.current}
+                                    aria-label={showPasswords.current ? 'Hide current password' : 'Show current password'}
+                                >
+                                    {showPasswords.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <label className="text-sm font-medium">New Password</label>
-                            <Input
-                                type="password"
-                                value={passwordForm.newPassword}
-                                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                                autoComplete="new-password"
-                                minLength={6}
-                                required
-                            />
+                            <div className="relative">
+                                <Input
+                                    type={showPasswords.new ? 'text' : 'password'}
+                                    value={passwordForm.newPassword}
+                                    onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                                    autoComplete="new-password"
+                                    className="pr-10"
+                                    minLength={6}
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => togglePasswordVisibility('new')}
+                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground focus:outline-none"
+                                    aria-pressed={showPasswords.new}
+                                    aria-label={showPasswords.new ? 'Hide new password' : 'Show new password'}
+                                >
+                                    {showPasswords.new ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Confirm New Password</label>
-                            <Input
-                                type="password"
-                                value={passwordForm.confirmPassword}
-                                onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                                autoComplete="new-password"
-                                minLength={6}
-                                required
-                            />
+                            <div className="relative">
+                                <Input
+                                    type={showPasswords.confirm ? 'text' : 'password'}
+                                    value={passwordForm.confirmPassword}
+                                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                                    autoComplete="new-password"
+                                    className="pr-10"
+                                    minLength={6}
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => togglePasswordVisibility('confirm')}
+                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground focus:outline-none"
+                                    aria-pressed={showPasswords.confirm}
+                                    aria-label={showPasswords.confirm ? 'Hide confirm password' : 'Show confirm password'}
+                                >
+                                    {showPasswords.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                            </div>
                         </div>
                         <Button type="submit" className="w-full bg-[#2c2a9c] hover:bg-[#241f7a] text-white" disabled={isChangingPassword}>
                             {isChangingPassword ? 'Updating...' : 'Update Password'}
