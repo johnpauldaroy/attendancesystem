@@ -91,6 +91,39 @@ const MembersPage = () => {
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; success: number; errors: number } | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
 
+  const handleEdit = (member: any) => {
+    setEditingMember(member);
+    setFormData({
+      ...initialFormState,
+      ...member,
+      birth_date: formatDateForInput(member.birth_date),
+      date_of_membership: formatDateForInput(member.date_of_membership),
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingMember(null);
+    setFormData(initialFormState);
+    if (searchParams.get('edit')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('edit');
+      setSearchParams(next, { replace: true });
+    }
+  };
+
+  const openEditById = async (id: string) => {
+    try {
+      const res = await api.get(`members/${id}`);
+      const member = res.data?.data ?? res.data;
+      if (!member) throw new Error('Member not found');
+      handleEdit(member);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Unable to load member');
+    }
+  };
+
   const { data: branches } = useQuery({
     queryKey: ['branches'],
     queryFn: async () => {
@@ -250,7 +283,19 @@ const MembersPage = () => {
 
     const reader = new FileReader();
     reader.onload = (e) => {
-      const text = e.target?.result as string;
+      const buffer = e.target?.result as ArrayBuffer;
+      let text = '';
+
+      try {
+        // Try UTF-8 first
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        text = decoder.decode(buffer);
+      } catch (err) {
+        // Fallback to ISO-8859-1 (common for Excel CSVs) if UTF-8 fails
+        const decoder = new TextDecoder('iso-8859-1');
+        text = decoder.decode(buffer);
+      }
+
       Papa.parse(text, {
         header: true,
         skipEmptyLines: true,
@@ -311,41 +356,9 @@ const MembersPage = () => {
         },
       });
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
-  const handleEdit = (member: any) => {
-    setEditingMember(member);
-    setFormData({
-      ...initialFormState,
-      ...member,
-      birth_date: formatDateForInput(member.birth_date),
-      date_of_membership: formatDateForInput(member.date_of_membership),
-    });
-    setIsModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setEditingMember(null);
-    setFormData(initialFormState);
-    if (searchParams.get('edit')) {
-      const next = new URLSearchParams(searchParams);
-      next.delete('edit');
-      setSearchParams(next, { replace: true });
-    }
-  };
-
-  const openEditById = async (id: string) => {
-    try {
-      const res = await api.get(`members/${id}`);
-      const member = res.data?.data ?? res.data;
-      if (!member) throw new Error('Member not found');
-      handleEdit(member);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Unable to load member');
-    }
-  };
 
   const handleToggleSelectAll = () => {
     if (members.length === 0) return;
