@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://apiattendance.barbarazmpc.cloud/api',
+  baseURL: import.meta.env.VITE_API_URL || 'https://apiattendance.barbarazmpc.cloud/api',
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
