@@ -3,9 +3,11 @@ import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
-import { LogOut, UserPlus, ClipboardList, CheckCircle, FileText } from 'lucide-react';
+import { LogOut, UserPlus, ClipboardList, CheckCircle, FileText, Key } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { toast } from 'sonner';
 
 type SegKey = 'Bronze' | 'Silver' | 'Gold' | 'Diamond' | 'Not Segmented';
 
@@ -27,6 +29,59 @@ const DashboardPage = () => {
     });
     const [isLoading, setIsLoading] = useState(true);
     const [showSegDialog, setShowSegDialog] = useState(false);
+    const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+    const [isChangingPassword, setIsChangingPassword] = useState(false);
+    const [passwordForm, setPasswordForm] = useState({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+    });
+
+    const resetPasswordForm = () => {
+        setPasswordForm({
+            currentPassword: '',
+            newPassword: '',
+            confirmPassword: '',
+        });
+    };
+
+    const handlePasswordDialogChange = (open: boolean) => {
+        setShowPasswordDialog(open);
+        if (!open) {
+            resetPasswordForm();
+        }
+    };
+
+    const handleChangePassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+            toast.error('New password and confirm password do not match.');
+            return;
+        }
+
+        setIsChangingPassword(true);
+        try {
+            await api.post('me/change-password', {
+                current_password: passwordForm.currentPassword,
+                password: passwordForm.newPassword,
+                password_confirmation: passwordForm.confirmPassword,
+            });
+
+            toast.success('Password changed successfully.');
+            setShowPasswordDialog(false);
+            resetPasswordForm();
+        } catch (error: any) {
+            const message =
+                error?.response?.data?.errors?.current_password?.[0] ||
+                error?.response?.data?.errors?.password?.[0] ||
+                error?.response?.data?.message ||
+                'Failed to update password.';
+            toast.error(message);
+        } finally {
+            setIsChangingPassword(false);
+        }
+    };
 
     useEffect(() => {
         const fetchStats = async (showLoading = false) => {
@@ -67,6 +122,10 @@ const DashboardPage = () => {
                             <div className="text-xs md:text-sm text-muted-foreground hidden sm:block">
                                 {user?.name} ({user?.role})
                             </div>
+                            <Button variant="outline" size="sm" onClick={() => setShowPasswordDialog(true)} className="h-9">
+                                <Key className="h-4 w-4 md:mr-2" />
+                                <span className="hidden md:inline">Change Password</span>
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={logout} className="h-9">
                                 <LogOut className="h-4 w-4 md:mr-2" />
                                 <span className="hidden md:inline">Logout</span>
@@ -192,6 +251,53 @@ const DashboardPage = () => {
                             </div>
                         ))}
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Change Password Dialog */}
+            <Dialog open={showPasswordDialog} onOpenChange={handlePasswordDialogChange}>
+                <DialogContent className="max-w-[95vw] sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Change Password</DialogTitle>
+                        <DialogDescription>Update your account password.</DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleChangePassword} className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Current Password</label>
+                            <Input
+                                type="password"
+                                value={passwordForm.currentPassword}
+                                onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                                autoComplete="current-password"
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">New Password</label>
+                            <Input
+                                type="password"
+                                value={passwordForm.newPassword}
+                                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                                autoComplete="new-password"
+                                minLength={6}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Confirm New Password</label>
+                            <Input
+                                type="password"
+                                value={passwordForm.confirmPassword}
+                                onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                                autoComplete="new-password"
+                                minLength={6}
+                                required
+                            />
+                        </div>
+                        <Button type="submit" className="w-full bg-[#2c2a9c] hover:bg-[#241f7a] text-white" disabled={isChangingPassword}>
+                            {isChangingPassword ? 'Updating...' : 'Update Password'}
+                        </Button>
+                    </form>
                 </DialogContent>
             </Dialog>
         </>
