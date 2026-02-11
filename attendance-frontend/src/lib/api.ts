@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 const getBaseURL = () => {
-    const url = import.meta.env.VITE_API_URL || 'https://apiattendance.barbazampc.cloud/api';
+    let url = import.meta.env.VITE_API_URL || 'https://apiattendance.barbazampc.cloud/api';
+    url = url.trim().replace(/\/+$/, ''); // Trim and remove trailing slashes
     return url.endsWith('/api') ? url : `${url}/api`;
 };
 
