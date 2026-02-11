@@ -12,6 +12,34 @@ import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
+const IGNORE_FIELDS = ['id', 'created_at', 'updated_at', 'note', 'is_temporary', 'metadata'];
+
+const formatChanges = (before: any, after: any): string[] => {
+    const changes: string[] = [];
+    if (!before && !after) return ['No details available'];
+    const afterObj = after || {};
+    const beforeObj = before || {};
+    const allKeys = new Set([...Object.keys(afterObj), ...Object.keys(beforeObj)]);
+    for (const key of allKeys) {
+        if (IGNORE_FIELDS.includes(key)) continue;
+        const oldVal = beforeObj[key] ?? '';
+        const newVal = afterObj[key] ?? '';
+        if (String(oldVal) !== String(newVal)) {
+            changes.push(`${key}: "${oldVal}" → "${newVal}"`);
+        }
+    }
+    // Check for a note field
+    if (afterObj.note) {
+        changes.push(`Note: ${afterObj.note}`);
+    }
+    return changes.length > 0 ? changes : ['No detailed changes recorded'];
+};
+
+const getDetailsSummary = (log: any): string => {
+    const changes = formatChanges(log.before, log.after);
+    return changes.slice(0, 2).join('; ') + (changes.length > 2 ? ` (+${changes.length - 2} more)` : '');
+};
+
 const AuditLogsPage = () => {
     const { user, isLoading: authLoading } = useAuth();
     if (authLoading) return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
@@ -71,7 +99,7 @@ const AuditLogsPage = () => {
                 log.action_type,
                 log.entity_type,
                 log.entity_id,
-                log.details || ''
+                formatChanges(log.before, log.after).join('; ')
             ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
 
             const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + csvRows.join("\n");
@@ -171,7 +199,7 @@ const AuditLogsPage = () => {
                                                     <TableCell className="text-sm font-medium">{log.actor?.name || log.actor_user_id || 'System'}</TableCell>
                                                     <TableCell>{getActionBadge(log.action_type)}</TableCell>
                                                     <TableCell className="text-xs text-muted-foreground">{log.entity_type} #{log.entity_id}</TableCell>
-                                                    <TableCell className="text-xs max-w-[200px] truncate">{log.details}</TableCell>
+                                                    <TableCell className="text-xs max-w-[200px] truncate">{getDetailsSummary(log)}</TableCell>
                                                 </TableRow>
                                             ))
                                         ) : (
@@ -203,7 +231,17 @@ const AuditLogsPage = () => {
                                 <div><div className="text-xs font-medium text-muted-foreground">Actor</div><div className="text-sm font-medium">{selectedLog.actor?.name || 'System'}</div></div>
                                 <div><div className="text-xs font-medium text-muted-foreground">Entity</div><div className="text-sm">{selectedLog.entity_type} #{selectedLog.entity_id}</div></div>
                             </div>
-                            <div><div className="text-xs font-medium text-muted-foreground mb-1">Details</div><div className="bg-muted p-3 rounded-lg text-sm whitespace-pre-wrap break-words">{selectedLog.details}</div></div>
+                            <div>
+                                <div className="text-xs font-medium text-muted-foreground mb-1">Details</div>
+                                <div className="bg-muted p-3 rounded-lg text-sm space-y-1 max-h-[50vh] overflow-y-auto">
+                                    {formatChanges(selectedLog.before, selectedLog.after).map((change: string, i: number) => (
+                                        <div key={i} className="flex items-start gap-2 py-0.5">
+                                            <span className="text-muted-foreground select-none">•</span>
+                                            <span className="break-words">{change}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </DialogContent>
