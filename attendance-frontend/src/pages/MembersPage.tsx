@@ -297,9 +297,9 @@ const MembersPage = () => {
               errors: totalErrors
             });
 
-            // Add a small delay between batches to avoid overloading the server
+            // Add a 1 second delay between batches to avoid rate limiting (429 errors)
             if (i + batchSize < rows.length) {
-              await sleep(300);
+              await sleep(1000);
             }
           }
 

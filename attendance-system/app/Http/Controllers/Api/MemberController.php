@@ -15,23 +15,43 @@ use Illuminate\Validation\ValidationException;
 
 class MemberController extends Controller
 {
+    private function normalizeValue($value, $isNumeric = false)
+    {
+        if ($value === null)
+            return null;
+
+        $v = trim((string) $value);
+        $upper = strtoupper($v);
+
+        if ($upper === 'NULL' || $upper === 'N/A' || $upper === '' || $upper === '-') {
+            return null;
+        }
+
+        if ($isNumeric) {
+            return is_numeric($v) ? (int) $v : null;
+        }
+
+        return $v;
+    }
+
     private function resolveBranchId($value)
     {
-        if ($value === null || $value === '') {
+        $val = $this->normalizeValue($value);
+        if ($val === null) {
             return null;
         }
 
         // Allow "all" to mean no filtering
-        if (is_string($value) && strtolower(trim($value)) === 'all') {
+        if (is_string($val) && strtolower(trim($val)) === 'all') {
             return null;
         }
 
-        if (is_numeric($value)) {
-            return (int) $value;
+        if (is_numeric($val)) {
+            return (int) $val;
         }
 
-        $branch = Branch::where('name', $value)
-            ->orWhere('code', $value)
+        $branch = Branch::where('name', $val)
+            ->orWhere('code', $val)
             ->first();
 
         if (!$branch) {
@@ -261,36 +281,36 @@ class MemberController extends Controller
 
             $mapped = [
                 'cif_key' => $this->cleanExcelFormula($get('CIFKEY', null) ?? $get('CIF KEY', null)),
-                'full_name' => $get('MEMBER NAME', null) ?? $get('FULL NAME', null),
+                'full_name' => $this->normalizeValue($get('MEMBER NAME', null) ?? $get('FULL NAME', null)),
                 'origin_branch_id' => $this->resolveBranchId($get('ORIGIN BRANCH', null) ?? $get('BRANCH ORIGIN', null) ?? $get('ORIGIN BRANCH ID', null) ?? $user->branch_id ?? 1),
-                'status' => $get('STATUS', 'ACTIVE'),
+                'status' => $this->normalizeValue($get('STATUS', 'ACTIVE')),
                 'birth_date' => $this->parseDate($get('BIRTH DATE', null)),
-                'age' => $get('AGE', null),
-                'sex' => $get('SEX', null),
-                'civil_status' => $get('CIVIL STATUS', null),
-                'spouse_name' => $get('SPOUSE NAME', null) ?? $get('SPOUSENAME', null),
-                'educational_attainment' => $get('EDUCATIONAL ATTAINMENT', null) ?? $get('EDUCATIONAL ATTAINTMENT', null) ?? $get('EDUCATTAINMENT', null) ?? $get('EDUC ATTAINMENT', null),
-                'contact_no' => $get('CONTACT #', null) ?? $get('CONTACT NO', null),
-                'telephone_no' => $get('TELEPHONE #', null) ?? $get('TELEPHONE NO', null),
-                'address' => $get('ADDRESS', null),
-                'unit_house_no' => $get('UNIT/HOUSE', null) ?? $get('UNIT/HOUSE NUMBER/STREET', null) ?? $get('UNIT NO', null),
-                'barangay_village' => $get('BARANGAY', null) ?? $get('BARANGAY VILLAGE', null),
-                'city_town' => $get('CITY/TOWN/MUNICIPALITY', null) ?? $get('CITY', null),
-                'province' => $get('PROVINCE', null),
+                'age' => $this->normalizeValue($get('AGE', null), true),
+                'sex' => $this->normalizeValue($get('SEX', null)),
+                'civil_status' => $this->normalizeValue($get('CIVIL STATUS', null)),
+                'spouse_name' => $this->normalizeValue($get('SPOUSE NAME', null) ?? $get('SPOUSENAME', null)),
+                'educational_attainment' => $this->normalizeValue($get('EDUCATIONAL ATTAINMENT', null) ?? $get('EDUCATIONAL ATTAINTMENT', null) ?? $get('EDUCATTAINMENT', null) ?? $get('EDUC ATTAINMENT', null)),
+                'contact_no' => $this->normalizeValue($get('CONTACT #', null) ?? $get('CONTACT NO', null)),
+                'telephone_no' => $this->normalizeValue($get('TELEPHONE #', null) ?? $get('TELEPHONE NO', null)),
+                'address' => $this->normalizeValue($get('ADDRESS', null)),
+                'unit_house_no' => $this->normalizeValue($get('UNIT/HOUSE', null) ?? $get('UNIT/HOUSE NUMBER/STREET', null) ?? $get('UNIT NO', null)),
+                'barangay_village' => $this->normalizeValue($get('BARANGAY', null) ?? $get('BARANGAY VILLAGE', null)),
+                'city_town' => $this->normalizeValue($get('CITY/TOWN/MUNICIPALITY', null) ?? $get('CITY', null)),
+                'province' => $this->normalizeValue($get('PROVINCE', null)),
                 'date_of_membership' => $this->parseDate($get('DATE OF MEMBERSHIP', null)),
-                'classification' => $get('CLASSIFICATION', null),
-                'membership_type' => $get('MEMBERS TYPE', null) ?? $get('MEMBERSHIP TYPE', null),
-                'membership_status' => $get('MEMBERSHIP STATUS', null),
-                'membership_update' => $get('MEMBERSHIP UPDATE', null),
-                'position' => $get('POSITION', null),
-                'segmentation' => $get('SEGMENTATION STATUS', null) ?? $get('SEGMENTATION', null),
-                'attendance_status' => $get('ATTENDANCE STATUS', null),
-                'representatives_status' => $get('REPRESENTATIVE STATUS', null),
-                'attend_ra' => $get('ATTEND RA', null),
-                'annual_income' => $get('ANNUAL INCOME', null) ?? $get('ANNUALINCOME', null),
-                'tin_no' => $get('TIN', null),
-                'sss_no' => $get('SSS', null),
-                'gsis_no' => $get('GSIS', null),
+                'classification' => $this->normalizeValue($get('CLASSIFICATION', null)),
+                'membership_type' => $this->normalizeValue($get('MEMBERS TYPE', null) ?? $get('MEMBERSHIP TYPE', null)),
+                'membership_status' => $this->normalizeValue($get('MEMBERSHIP STATUS', null)),
+                'membership_update' => $this->normalizeValue($get('MEMBERSHIP UPDATE', null)),
+                'position' => $this->normalizeValue($get('POSITION', null)),
+                'segmentation' => $this->normalizeValue($get('SEGMENTATION STATUS', null) ?? $get('SEGMENTATION', null)),
+                'attendance_status' => $this->normalizeValue($get('ATTENDANCE STATUS', null)),
+                'representatives_status' => $this->normalizeValue($get('REPRESENTATIVE STATUS', null)),
+                'attend_ra' => $this->normalizeValue($get('ATTEND RA', null)),
+                'annual_income' => $this->normalizeValue($get('ANNUAL INCOME', null) ?? $get('ANNUALINCOME', null)),
+                'tin_no' => $this->normalizeValue($get('TIN', null)),
+                'sss_no' => $this->normalizeValue($get('SSS', null)),
+                'gsis_no' => $this->normalizeValue($get('GSIS', null)),
             ];
 
             return array_filter($mapped, function ($v) {
