@@ -87,6 +87,7 @@ const MembersPage = () => {
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [formData, setFormData] = useState(initialFormState);
+  const [isExporting, setIsExporting] = useState(false);
   const [isExportingHistory, setIsExportingHistory] = useState(false);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; success: number; errors: number } | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
@@ -370,88 +371,31 @@ const MembersPage = () => {
   };
 
   const handleExport = async () => {
-    toast.info('Export started...');
+    setIsExporting(true);
+    toast.info('Export started... This may take a moment.');
     try {
-      const perPage = 1000;
-      let page = 1;
-      let lastPage = 1;
-      const rows: any[] = [];
+      const response = await api.get('members/export', {
+        params: {
+          q: debouncedSearch,
+          branch_id: selectedBranch,
+        },
+        responseType: 'blob',
+      });
 
-      do {
-        const res = await api.get('members/search', {
-          params: { q: debouncedSearch, branch_id: selectedBranch, page, per_page: perPage },
-        });
-
-        const payload = res.data;
-        rows.push(...(payload.data || []));
-        lastPage = Number(payload.last_page || 1);
-        page += 1;
-      } while (page <= lastPage);
-
-      if (!rows.length) return toast.error('No members to export');
-      const headers = [
-        'CIFKEY', 'MEMBER NAME', 'BIRTH DATE', 'AGE', 'ADDRESS',
-        'TELEPHONE #', 'CONTACT #', 'SEX', 'CIVIL STATUS',
-        'DATE OF MEMBERSHIP', 'CLASSIFICATION', 'MEMBERSHIP TYPE',
-        'MEMBERSHIP STATUS', 'MEMBERSHIP UPDATE', 'STATUS', 'POSITION',
-        'ANNUAL INCOME', 'TIN', 'SSS', 'SPOUSE NAME',
-        'EDUCATIONAL ATTAINMENT', 'UNIT/HOUSE', 'BARANGAY',
-        'CITY/TOWN/MUNICIPALITY', 'PROVINCE', 'GSIS',
-        'SEGMENTATION', 'REPRESENTATIVE STATUS',
-        'ATTENDANCE STATUS', 'ATTEND RA', 'ORIGIN BRANCH',
-      ];
-      const escCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const csvRows = rows
-        .map((m: any) =>
-          [
-            escCsv(`="${m.cif_key || ''}"`), // Excel trick for leading zeros, properly quoted
-            escCsv(m.full_name),
-            escCsv(m.birth_date ? String(m.birth_date).split('T')[0] : ''),
-            escCsv(m.age),
-            escCsv(m.address),
-            escCsv(m.telephone_no),
-            escCsv(m.contact_no),
-            escCsv(m.sex),
-            escCsv(m.civil_status),
-            escCsv(m.date_of_membership ? String(m.date_of_membership).split('T')[0] : ''),
-            escCsv(m.classification),
-            escCsv(m.membership_type),
-            escCsv(m.membership_status),
-            escCsv(m.membership_update),
-            escCsv(m.status),
-            escCsv(m.position),
-            escCsv(m.annual_income),
-            escCsv(m.tin_no),
-            escCsv(m.sss_no),
-            escCsv(m.spouse_name),
-            escCsv(m.educational_attainment),
-            escCsv(m.unit_house_no),
-            escCsv(m.barangay_village),
-            escCsv(m.city_town),
-            escCsv(m.province),
-            escCsv(m.gsis_no),
-            escCsv(m.segmentation),
-            escCsv(m.representatives_status),
-            escCsv(m.attendance_status),
-            escCsv(m.attend_ra),
-            escCsv(m.origin_branch?.name || ''),
-          ].join(','),
-        )
-        .join('\n');
-      const bom = '\uFEFF';
-      const csv = bom + headers.join(',') + '\n' + csvRows;
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'members_export.csv';
+      link.setAttribute('download', `members_export_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      toast.success(`Exported ${rows.length.toLocaleString()} member(s)`);
+      window.URL.revokeObjectURL(url);
+      toast.success('Export completed successfully');
     } catch (e) {
+      console.error('Export failed', e);
       toast.error('Export failed');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -608,8 +552,9 @@ const MembersPage = () => {
                 Import CSV
               </Button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleImport} />
-              <Button variant="outline" size="sm" onClick={handleExport} className="w-full sm:w-auto">
-                <FileSpreadsheet className="h-4 w-4 mr-2" /> Export CSV
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting} className="w-full sm:w-auto">
+                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-2" />}
+                Export CSV
               </Button>
               <Button
                 variant="destructive"

@@ -23,6 +23,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Members
     Route::get('members/search', [MemberController::class, 'search']);
+    Route::get('members/export', [MemberController::class, 'export']);
     Route::get('members/{id}', [MemberController::class, 'show']);
     Route::post('members', [MemberController::class, 'store']);
     Route::put('members/{id}', [MemberController::class, 'update']);

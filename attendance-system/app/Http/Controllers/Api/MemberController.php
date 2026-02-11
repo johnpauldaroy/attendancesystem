@@ -11,7 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
-// Removed missing PhpOffice library
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MemberController extends Controller
 {
@@ -374,5 +374,119 @@ class MemberController extends Controller
             return $m[1];
         }
         return $v;
+    }
+
+
+    public function export(Request $request)
+    {
+        $q = $request->query('q');
+        $branchId = $this->resolveBranchId($request->query('branch_id'));
+
+        $query = Member::with('originBranch');
+
+        if ($q) {
+            $query->where(function ($query) use ($q) {
+                $query->where('cif_key', 'like', $q . '%')
+                    ->orWhere('member_no', 'like', $q . '%')
+                    ->orWhere('full_name', 'like', '%' . $q . '%');
+            });
+        }
+
+        if ($branchId && $branchId !== 'all') {
+            $query->where('origin_branch_id', $branchId);
+        }
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="members_export_' . date('Y-m-d') . '.csv"',
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
+        ];
+
+        $callback = function () use ($query) {
+            $file = fopen('php://output', 'w');
+
+            // Add BOM for Excel UTF-8 compatibility
+            fputs($file, "\xEF\xBB\xBF");
+
+            // CSV Headers
+            fputcsv($file, [
+                'CIFKEY',
+                'MEMBER NAME',
+                'BIRTH DATE',
+                'AGE',
+                'ADDRESS',
+                'TELEPHONE #',
+                'CONTACT #',
+                'SEX',
+                'CIVIL STATUS',
+                'DATE OF MEMBERSHIP',
+                'CLASSIFICATION',
+                'MEMBERSHIP TYPE',
+                'MEMBERSHIP STATUS',
+                'MEMBERSHIP UPDATE',
+                'STATUS',
+                'POSITION',
+                'ANNUAL INCOME',
+                'TIN',
+                'SSS',
+                'SPOUSE NAME',
+                'EDUCATIONAL ATTAINMENT',
+                'UNIT/HOUSE',
+                'BARANGAY',
+                'CITY/TOWN/MUNICIPALITY',
+                'PROVINCE',
+                'GSIS',
+                'SEGMENTATION',
+                'REPRESENTATIVE STATUS',
+                'ATTENDANCE STATUS',
+                'ATTEND RA',
+                'ORIGIN BRANCH'
+            ]);
+
+            $query->latest()->cursor()->each(function ($m) use ($file) {
+                // Excel trick for leading zeros: ="00123"
+                $cifKey = $m->cif_key ? '="' . $m->cif_key . '"' : '';
+
+                fputcsv($file, [
+                    $cifKey,
+                    $m->full_name,
+                    $m->birth_date ? $m->birth_date->format('Y-m-d') : '',
+                    $m->age,
+                    $m->address,
+                    $m->telephone_no,
+                    $m->contact_no,
+                    $m->sex,
+                    $m->civil_status,
+                    $m->date_of_membership ? $m->date_of_membership->format('Y-m-d') : '',
+                    $m->classification,
+                    $m->membership_type,
+                    $m->membership_status,
+                    $m->membership_update,
+                    $m->status,
+                    $m->position,
+                    $m->annual_income,
+                    $m->tin_no,
+                    $m->sss_no,
+                    $m->spouse_name,
+                    $m->educational_attainment,
+                    $m->unit_house_no,
+                    $m->barangay_village,
+                    $m->city_town,
+                    $m->province,
+                    $m->gsis_no,
+                    $m->segmentation,
+                    $m->representatives_status,
+                    $m->attendance_status,
+                    $m->attend_ra,
+                    $m->originBranch ? $m->originBranch->name : '',
+                ]);
+            });
+
+            fclose($file);
+        };
+
+        return new StreamedResponse($callback, 200, $headers);
     }
 }
