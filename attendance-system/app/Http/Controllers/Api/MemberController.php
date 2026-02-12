@@ -34,6 +34,22 @@ class MemberController extends Controller
         return $v;
     }
 
+    private function normalizeSex($value)
+    {
+        $val = $this->normalizeValue($value);
+        if (!$val)
+            return null;
+
+        $upper = strtoupper($val);
+        if (in_array($upper, ['M', 'MALE', 'MAN', 'BOY'])) {
+            return 'MALE';
+        }
+        if (in_array($upper, ['F', 'FEMALE', 'WOMAN', 'GIRL'])) {
+            return 'FEMALE';
+        }
+        return $upper;
+    }
+
     private static function formatDate($value)
     {
         if (!$value)
@@ -300,7 +316,7 @@ class MemberController extends Controller
                 'status' => $this->normalizeValue($get('STATUS', 'ACTIVE')),
                 'birth_date' => $this->parseDate($get('BIRTH DATE', null)),
                 'age' => $this->normalizeValue($get('AGE', null), true),
-                'sex' => $this->normalizeValue($get('SEX', null)),
+                'sex' => $this->normalizeSex($get('SEX', null)),
                 'civil_status' => $this->normalizeValue($get('CIVIL STATUS', null)),
                 'spouse_name' => $this->normalizeValue($get('SPOUSE NAME', null) ?? $get('SPOUSENAME', null)),
                 'educational_attainment' => $this->normalizeValue($get('EDUCATIONAL ATTAINMENT', null) ?? $get('EDUCATIONAL ATTAINTMENT', null) ?? $get('EDUCATTAINMENT', null) ?? $get('EDUC ATTAINMENT', null)),
@@ -335,6 +351,20 @@ class MemberController extends Controller
         foreach ($request->members as $index => $memberData) {
             try {
                 $payload = $mapKeys($memberData);
+
+                // Skip if payload is effectively empty (e.g., all nulls)
+                $hasData = false;
+                foreach ($payload as $k => $v) {
+                    if ($v !== null && $v !== '') {
+                        $hasData = true;
+                        break;
+                    }
+                }
+
+                if (!$hasData) {
+                    continue; // Skip empty row silently
+                }
+
                 if (empty($payload['cif_key']) || empty($payload['full_name'])) {
                     throw new \Exception('Missing required fields (CIF Key, Full Name)');
                 }

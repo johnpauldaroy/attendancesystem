@@ -301,7 +301,13 @@ const MembersPage = () => {
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
-          const rows = results.data as any[];
+          const rawRows = results.data as any[];
+          // Filter out completely empty rows or rows with no meaningful data
+          const rows = rawRows.filter(row => {
+            const values = Object.values(row);
+            return values.some(v => v !== null && v !== undefined && String(v).trim().length > 0);
+          });
+
           setImportErrors([]);
           if (!rows.length) {
             toast.error('No data found in CSV');
