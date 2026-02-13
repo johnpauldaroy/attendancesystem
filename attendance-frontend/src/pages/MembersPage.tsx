@@ -23,6 +23,14 @@ import {
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import Papa from 'papaparse';
+import {
+  barangays as fetchBarangays,
+  cities as fetchCities,
+  provinces as fetchProvinces,
+  type BarangayAddress,
+  type CityAddress,
+  type ProvinceAddress,
+} from 'select-philippines-address';
 
 const formatDateForInput = (dateStr: any) => {
   if (!dateStr) return '';
@@ -35,6 +43,14 @@ const formatDateForInput = (dateStr: any) => {
   }
   return s;
 };
+
+const REGION_6_CODE = '06';
+
+const normalizeAddressValue = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 
 const initialFormState = {
   cif_key: '',
@@ -137,11 +153,11 @@ const MembersPage = () => {
     refetchOnWindowFocus: false,
   });
 
-  const { data: provinces } = useQuery({
-    queryKey: ['provinces'],
+  const { data: provinces = [] } = useQuery<ProvinceAddress[]>({
+    queryKey: ['region-6-provinces'],
     queryFn: async () => {
-      const res = await api.get('locations/provinces');
-      return res.data;
+      const result = await fetchProvinces(REGION_6_CODE);
+      return Array.isArray(result) ? result : [];
     },
     enabled: !!user,
     staleTime: 300_000,
@@ -149,25 +165,41 @@ const MembersPage = () => {
     refetchOnWindowFocus: false,
   });
 
-  const { data: cities } = useQuery({
-    queryKey: ['cities', formData.province],
+  const selectedProvinceCode = useMemo(() => {
+    if (!formData.province) return '';
+    const selectedProvince = provinces.find(
+      (province) => normalizeAddressValue(province.province_name) === normalizeAddressValue(formData.province),
+    );
+    return selectedProvince?.province_code ?? '';
+  }, [formData.province, provinces]);
+
+  const { data: cities = [] } = useQuery<CityAddress[]>({
+    queryKey: ['cities', selectedProvinceCode],
     queryFn: async () => {
-      const res = await api.get('locations/cities', { params: { province: formData.province } });
-      return res.data;
+      const result = await fetchCities(selectedProvinceCode);
+      return Array.isArray(result) ? result : [];
     },
-    enabled: !!user && !!formData.province,
+    enabled: !!user && !!selectedProvinceCode,
     staleTime: 300_000,
     gcTime: 900_000,
     refetchOnWindowFocus: false,
   });
 
-  const { data: barangays } = useQuery({
-    queryKey: ['barangays', formData.province, formData.city_town],
+  const selectedCityCode = useMemo(() => {
+    if (!formData.city_town) return '';
+    const selectedCity = cities.find(
+      (city) => normalizeAddressValue(city.city_name) === normalizeAddressValue(formData.city_town),
+    );
+    return selectedCity?.city_code ?? '';
+  }, [cities, formData.city_town]);
+
+  const { data: barangays = [] } = useQuery<BarangayAddress[]>({
+    queryKey: ['barangays', selectedCityCode],
     queryFn: async () => {
-      const res = await api.get('locations/barangays', { params: { province: formData.province, city: formData.city_town } });
-      return res.data;
+      const result = await fetchBarangays(selectedCityCode);
+      return Array.isArray(result) ? result : [];
     },
-    enabled: !!user && !!formData.province && !!formData.city_town,
+    enabled: !!user && !!selectedCityCode,
     staleTime: 300_000,
     gcTime: 900_000,
     refetchOnWindowFocus: false,
@@ -999,9 +1031,9 @@ const MembersPage = () => {
                         }}
                       >
                         <option value="">Select Province</option>
-                        {(provinces || []).map((p: string) => (
-                          <option key={p} value={p}>
-                            {p}
+                        {provinces.map((province) => (
+                          <option key={province.province_code} value={province.province_name}>
+                            {province.province_name}
                           </option>
                         ))}
                       </select>
@@ -1018,12 +1050,12 @@ const MembersPage = () => {
                             barangay_village: '',
                           });
                         }}
-                        disabled={!formData.province}
+                        disabled={!selectedProvinceCode}
                       >
                         <option value="">Select City/Town</option>
-                        {(cities || []).map((c: string) => (
-                          <option key={c} value={c}>
-                            {c}
+                        {cities.map((city) => (
+                          <option key={city.city_code} value={city.city_name}>
+                            {city.city_name}
                           </option>
                         ))}
                       </select>
@@ -1034,12 +1066,12 @@ const MembersPage = () => {
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         value={formData.barangay_village}
                         onChange={(e) => setFormData({ ...formData, barangay_village: e.target.value })}
-                        disabled={!formData.city_town}
+                        disabled={!selectedCityCode}
                       >
                         <option value="">Select Barangay</option>
-                        {(barangays || []).map((b: string) => (
-                          <option key={b} value={b}>
-                            {b}
+                        {barangays.map((barangay) => (
+                          <option key={barangay.brgy_code} value={barangay.brgy_name}>
+                            {barangay.brgy_name}
                           </option>
                         ))}
                       </select>
