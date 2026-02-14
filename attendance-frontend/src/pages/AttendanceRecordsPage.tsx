@@ -88,15 +88,34 @@ const AttendanceRecordsPage = () => {
     const handleExport = async () => {
         toast.info('Export started...');
         try {
-            const res = await api.get('attendance', {
-                params: { status, member_query: memberQuery, date_from: dateFrom, date_to: dateTo, per_page: 1000 }
+            const exportParams = {
+                status,
+                member_query: memberQuery,
+                date_from: dateFrom,
+                date_to: dateTo,
+                per_page: 1000
+            };
+
+            const firstPageRes = await api.get('attendance', {
+                params: { ...exportParams, page: 1 }
             });
-            const data = res.data.data;
-            if (!data.length) return toast.error('No records to export');
+
+            const firstPageData = firstPageRes?.data?.data || [];
+            const totalPages = Math.max(Number(firstPageRes?.data?.last_page || 1), 1);
+            if (!firstPageData.length) return toast.error('No records to export');
+
+            const allRows = [...firstPageData];
+            for (let page = 2; page <= totalPages; page++) {
+                const pageRes = await api.get('attendance', {
+                    params: { ...exportParams, page }
+                });
+                const pageData = pageRes?.data?.data || [];
+                if (pageData.length) allRows.push(...pageData);
+            }
 
             const headers = ["Date", "Member Name", "CIFKEY", "Origin", "Visited", "Logged By", "Status", "Remarks"];
             const escCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-            const csvRows = data.map((row: any) => [
+            const csvRows = allRows.map((row: any) => [
                 escCsv(new Date(row.attendance_date_time).toLocaleString()),
                 escCsv(row.member?.full_name || ''),
                 escCsv(`="${row.member?.cif_key || ''}"`),
@@ -112,12 +131,13 @@ const AttendanceRecordsPage = () => {
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.setAttribute("href", url);
-            link.setAttribute("download", "attendance_records.csv");
+            link.setAttribute("download", `attendance_records_${new Date().toISOString().split('T')[0]}.csv`);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
+            toast.success(`Exported ${allRows.length} records`);
         } catch (e) {
             toast.error('Export failed');
         }
